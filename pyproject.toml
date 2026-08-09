@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "h2hdb-opds"
-version = "0.1.0"
+version = "0.2.0"
 description = "OPDS 2.0 HTTP service for H2HDB catalogs"
 readme = "README.md"
 authors = [{ name = "Kuan-Lun Wang" }]
@@ -12,7 +12,7 @@ license = { file = "LICENSE" }
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "fastapi>=0.115.0,<1.0.0",
-    "h2hdb>=0.20.0.0,<0.21",
+    "h2hdb>=0.21.0.0,<0.22",
     "pydantic>=2.13.4,<3.0.0",
     "uvicorn>=0.34.0,<1.0.0",
 ]
