@@ -1,6 +1,6 @@
 """OPDS 2.0 HTTP service for H2HDB catalogs."""
 
-from .app import CompatibleCatalogReader, create_app
+from .app import create_app
 from .config import (
     BasicAuthConfig,
     OPDSConfig,
@@ -11,7 +11,6 @@ from .config import (
 
 __all__ = [
     "BasicAuthConfig",
-    "CompatibleCatalogReader",
     "OPDSConfig",
     "OPDSConfigError",
     "ServerConfig",

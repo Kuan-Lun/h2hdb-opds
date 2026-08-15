@@ -8,8 +8,10 @@ with Range and conditional HTTP support.
 Database connectors, schema migrations, durable queues, coordination fencing,
 and catalog persistence remain owned by the `h2hdb` core package. This service
 uses only the core catalog-reading public interface and opens database access
-in read-only mode. Startup runs the core schema compatibility check and never
-runs migrations.
+in read-only mode. Production startup delegates schema compatibility and READY
+validation to core's `open_database()` and never runs migrations. A
+caller-injected `CatalogReader` is treated as already initialized and does not
+need the legacy `SchemaCompatibility` or `check_compatibility()` API.
 
 `h2hdb-opds` does not own or synchronize a second database. It reads the
 core-owned H2HDB database: use the same SQLite file in read-only mode, or use a
@@ -110,8 +112,9 @@ requests that still arrive with an insecure effective scheme return 426 without
 issuing a Basic challenge. The public authentication document remains available
 without credentials.
 
-The database must already expose a compatible published catalog. Initialize or
-upgrade it separately using core-owned administration tooling and write
+The database must already be an epoch-2/version-1 `READY` database; catalog
+routes return no feed until at least one revision has been published. Initialize
+it on a truly empty database using core-owned administration tooling and write
 credentials, then start the service:
 
 ```bash

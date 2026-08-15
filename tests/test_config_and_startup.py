@@ -80,19 +80,18 @@ def test_database_access_is_read_only_by_default_and_forced(
     assert raw_writable.core.database.access_mode is DatabaseAccessMode.read_only
 
 
-async def test_startup_checks_compatibility_without_migrating(
+async def test_injected_catalog_starts_without_a_legacy_compatibility_hook(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
 
-    assert catalog_fixture.catalog.compatibility_checks == 0
+    assert not hasattr(catalog_fixture.catalog, "check_compatibility")
     async with app_client(app) as client:
         response = await client.get("/health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
-    assert catalog_fixture.catalog.compatibility_checks == 1
 
 
 def test_basic_auth_requires_https_and_an_explicit_tls_boundary(
@@ -206,7 +205,6 @@ async def test_production_startup_uses_read_only_open_database_once(
 
     def fake_open_database(config: CoreConfig) -> FakeCatalog:
         opened_access_modes.append(config.database.access_mode)
-        catalog_fixture.catalog.check_compatibility()
         return catalog_fixture.catalog
 
     monkeypatch.setattr(app_module, "open_database", fake_open_database)
@@ -222,4 +220,3 @@ async def test_production_startup_uses_read_only_open_database_once(
         assert (await client.get("/health")).status_code == 200
 
     assert opened_access_modes == [DatabaseAccessMode.read_only]
-    assert catalog_fixture.catalog.compatibility_checks == 1

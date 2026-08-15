@@ -18,14 +18,16 @@ schema migrations, durable queues, coordination fencing, and catalog
 repositories. Use only core public interfaces. Never import connector or
 repository internals, create or migrate schema, or expose unpublished catalog
 state. Database access is always forced to read-only. Production startup calls
-the public `open_database()` compatibility path; injected readers call only
-`check_compatibility()`. No startup path may call `migrate()`.
+the public `open_database()` compatibility and READY-state path. An injected
+`CatalogReader` is a caller-supplied, already-initialized boundary and is used
+directly; it does not need a legacy `SchemaCompatibility` or
+`check_compatibility()` hook. No startup path may call `migrate()`.
 
 ## Module Layout and HTTP Invariants
 
 - `config.py` owns the frozen OPDS, server, authentication, and nested core
   configuration models.
-- `app.py` wires the FastAPI lifespan and routes to a compatible public
+- `app.py` wires the FastAPI lifespan and routes to a public
   `CatalogReader`.
 - `serialization.py` owns OPDS feed, publication, navigation, search template,
   and pagination serialization.

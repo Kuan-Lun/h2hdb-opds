@@ -12,7 +12,6 @@ from h2hdb import (
     CatalogRevision,
     CatalogRevisionNotFoundError,
     CatalogSubject,
-    SchemaCompatibility,
 )
 
 
@@ -27,21 +26,12 @@ class FakeCatalog:
         self._snapshots = {
             self.revision.revision: (self.revision, publications),
         }
-        self.compatibility_checks = 0
         self.revision_lookups: list[int | None] = []
         self.list_calls: list[tuple[str | None, int, int]] = []
         self.require_artifact_calls: list[bool] = []
         self.list_revisions: list[CatalogRevision | None] = []
         self.publication_revisions: list[CatalogRevision | None] = []
         self.artifact_revisions: list[CatalogRevision | None] = []
-
-    def check_compatibility(self) -> SchemaCompatibility:
-        self.compatibility_checks += 1
-        return SchemaCompatibility(
-            database_version=1,
-            minimum_supported=1,
-            maximum_supported=1,
-        )
 
     def add_revision(
         self,

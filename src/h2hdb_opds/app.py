@@ -1,8 +1,8 @@
-__all__ = ["CompatibleCatalogReader", "create_app"]
+__all__ = ["create_app"]
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated, Protocol
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
@@ -10,7 +10,6 @@ from h2hdb import (
     CatalogReader,
     CatalogRevision,
     CatalogRevisionNotFoundError,
-    SchemaCompatibility,
     open_database,
 )
 
@@ -33,18 +32,14 @@ from .serialization import (
 )
 
 
-class CompatibleCatalogReader(CatalogReader, Protocol):
-    def check_compatibility(self) -> SchemaCompatibility: ...
-
-
 def create_app(
     config: OPDSConfig,
-    catalog: CompatibleCatalogReader | None = None,
+    catalog: CatalogReader | None = None,
 ) -> FastAPI:
     settings = config
     reader = catalog
 
-    def current_reader() -> CompatibleCatalogReader:
+    def current_reader() -> CatalogReader:
         if reader is None:
             raise RuntimeError(
                 "Catalog reader is unavailable before application startup"
@@ -57,8 +52,6 @@ def create_app(
         validate_artifact_root(settings.artifact_root)
         if reader is None:
             reader = open_database(settings.core)
-        else:
-            reader.check_compatibility()
         application.state.catalog_reader = reader
         yield
 
