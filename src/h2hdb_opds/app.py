@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from h2hdb import (
+    CatalogIdentifierError,
     CatalogReader,
     CatalogRevision,
     CatalogRevisionNotFoundError,
@@ -30,6 +31,8 @@ from .serialization import (
     publication_document,
     publications_document,
 )
+
+_INT63_MAX = (1 << 63) - 1
 
 
 def create_app(
@@ -60,6 +63,16 @@ def create_app(
         lifespan=lifespan,
     )
     authenticator = BasicAuthenticator(settings)
+
+    @application.exception_handler(CatalogIdentifierError)
+    async def handle_catalog_identifier_error(
+        _request: Request,
+        _error: CatalogIdentifierError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            {"detail": "Catalog identifier not found"},
+            status_code=404,
+        )
 
     @application.exception_handler(AuthenticationRequired)
     async def handle_authentication_required(
@@ -112,7 +125,7 @@ def create_app(
     @protected.get("", name="navigation", response_class=JSONResponse)
     def navigation(
         request: Request,
-        revision: Annotated[int | None, Query(ge=0)] = None,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> JSONResponse:
         selected = resolved_revision(revision)
         page = current_reader().list_publications(
@@ -149,9 +162,9 @@ def create_app(
     )
     def list_publications(
         request: Request,
-        offset: Annotated[int, Query(ge=0)] = 0,
-        limit: Annotated[int | None, Query(ge=1)] = None,
-        revision: Annotated[int | None, Query(ge=0)] = None,
+        offset: Annotated[int, Query(ge=0, le=_INT63_MAX)] = 0,
+        limit: Annotated[int | None, Query(ge=1, le=128)] = None,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> JSONResponse:
         selected = resolved_revision(revision)
         selected_limit = resolved_limit(limit)
@@ -178,34 +191,18 @@ def create_app(
         response_class=JSONResponse,
     )
     def search_publications(
-        request: Request,
         query: Annotated[str, Query(min_length=1, max_length=200)],
-        offset: Annotated[int, Query(ge=0)] = 0,
-        limit: Annotated[int | None, Query(ge=1)] = None,
-        revision: Annotated[int | None, Query(ge=0)] = None,
+        offset: Annotated[int, Query(ge=0, le=_INT63_MAX)] = 0,
+        limit: Annotated[int | None, Query(ge=1, le=128)] = None,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> JSONResponse:
         normalized_query = " ".join(query.split())
         if not normalized_query:
             raise HTTPException(status_code=422, detail="query must not be blank")
-        selected = resolved_revision(revision)
-        selected_limit = resolved_limit(limit)
-        validate_offset(offset, selected_limit)
-        page = current_reader().list_publications(
-            query=normalized_query,
-            offset=offset,
-            limit=selected_limit,
-            revision=selected,
-            require_artifact=True,
-        )
-        return JSONResponse(
-            publications_document(
-                request,
-                settings,
-                page,
-                endpoint="search_publications",
-                query=normalized_query,
-            ),
-            media_type=OPDS_FEED_MEDIA_TYPE,
+        del offset, limit, revision
+        raise HTTPException(
+            status_code=501,
+            detail="Catalog search is unavailable until its bounded index is built",
         )
 
     @protected.get(
@@ -216,7 +213,7 @@ def create_app(
     def get_publication(
         request: Request,
         publication_id: str,
-        revision: Annotated[int | None, Query(ge=0)] = None,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> JSONResponse:
         selected = resolved_revision(revision)
         publication = current_reader().get_publication(
@@ -256,7 +253,7 @@ def create_app(
     def acquire_artifact(
         request: Request,
         artifact_id: str,
-        revision: Annotated[int | None, Query(ge=0)] = None,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> Response:
         return artifact_response(request, artifact_id, revision)
 
@@ -268,7 +265,7 @@ def create_app(
     def head_artifact(
         request: Request,
         artifact_id: str,
-        revision: Annotated[int | None, Query(ge=0)] = None,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> Response:
         return artifact_response(request, artifact_id, revision)
 

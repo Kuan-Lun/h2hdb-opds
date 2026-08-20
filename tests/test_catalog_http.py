@@ -1,7 +1,13 @@
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from h2hdb import CatalogContributor, CatalogRevision, CatalogSubject
+import pytest
+from h2hdb import (
+    CatalogContributor,
+    CatalogIdentifierError,
+    CatalogRevision,
+    CatalogSubject,
+)
 from pydantic import SecretStr
 
 from h2hdb_opds import BasicAuthConfig, OPDSConfig, ServerConfig, create_app
@@ -54,7 +60,7 @@ async def test_authentication_document_is_public_and_basic_auth_is_enforced(
     assert authorized.status_code == 200
 
 
-async def test_navigation_has_self_publications_and_search_template(
+async def test_navigation_has_self_and_publications_without_unavailable_search(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
@@ -72,17 +78,14 @@ async def test_navigation_has_self_publications_and_search_template(
         "href": "http://catalog.example/opds/v2?revision=7",
         "type": OPDS_FEED_MEDIA_TYPE,
     }
-    search_link = next(link for link in document["links"] if link["rel"] == "search")
-    assert search_link["templated"] is True
-    assert search_link["href"].endswith(
-        "/opds/v2/search?revision=7{&query,offset,limit}"
-    )
+    assert all(link["rel"] != "search" for link in document["links"])
     assert document["navigation"][0]["href"].endswith(
         "/opds/v2/publications?revision=7"
     )
+    assert all(entry["rel"] != "search" for entry in document["navigation"])
 
 
-async def test_publications_search_pagination_and_single_document(
+async def test_publications_pagination_and_single_document(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
@@ -94,7 +97,6 @@ async def test_publications_search_pagination_and_single_document(
     async with app_client(app) as client:
         first_page = await client.get("/opds/v2/publications")
         second_page = await client.get("/opds/v2/publications?offset=2&limit=2")
-        search = await client.get("/opds/v2/search?query=cobalt&offset=0&limit=1")
         publication = await client.get("/opds/v2/publications/publication-alpha")
         missing = await client.get("/opds/v2/publications/missing")
 
@@ -124,12 +126,6 @@ async def test_publications_search_pagination_and_single_document(
 
     assert second_page.json()["metadata"]["currentPage"] == 2
     assert len(second_page.json()["publications"]) == 1
-    search_document = search.json()
-    assert search_document["metadata"]["numberOfItems"] == 2
-    assert search_document["metadata"]["itemsPerPage"] == 1
-    assert search_document["publications"][0]["metadata"]["title"] == "Alpha Gallery"
-    assert catalog_fixture.catalog.list_calls[-1] == ("cobalt", 0, 1)
-
     assert publication.status_code == 200
     assert publication.headers["content-type"] == OPDS_PUBLICATION_MEDIA_TYPE
     publication_metadata = publication.json()["metadata"]
@@ -162,7 +158,6 @@ async def test_missing_revision_returns_404_before_catalog_reads(
     async with app_client(app) as client:
         navigation = await client.get("/opds/v2?revision=404")
         feed = await client.get("/opds/v2/publications?revision=404")
-        search = await client.get("/opds/v2/search?query=alpha&revision=404")
         detail = await client.get(
             "/opds/v2/publications/publication-alpha?revision=404"
         )
@@ -170,10 +165,10 @@ async def test_missing_revision_returns_404_before_catalog_reads(
             "/opds/v2/acquisitions/artifact-alpha?revision=404"
         )
 
-    for response in (navigation, feed, search, detail, acquisition):
+    for response in (navigation, feed, detail, acquisition):
         assert response.status_code == 404
         assert response.json()["detail"] == "Catalog revision 404 not found"
-    assert catalog_fixture.catalog.revision_lookups == [404] * 5
+    assert catalog_fixture.catalog.revision_lookups == [404] * 4
     assert catalog_fixture.catalog.list_revisions == []
     assert catalog_fixture.catalog.publication_revisions == []
     assert catalog_fixture.catalog.artifact_revisions == []
@@ -265,7 +260,37 @@ async def test_artifactless_publications_are_filtered_with_accurate_counts(
     assert catalog.require_artifact_calls == [True, True]
 
 
-async def test_search_is_normalized_and_pagination_requires_page_alignment(
+async def test_noncanonical_catalog_path_identifiers_are_reported_as_not_found(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject_identifier(*_args: object, **_kwargs: object) -> None:
+        raise CatalogIdentifierError("noncanonical")
+
+    monkeypatch.setattr(
+        catalog_fixture.catalog,
+        "get_publication",
+        reject_identifier,
+    )
+    monkeypatch.setattr(
+        catalog_fixture.catalog,
+        "get_artifact",
+        reject_identifier,
+    )
+    app = create_app(opds_config, catalog_fixture.catalog)
+
+    async with app_client(app) as client:
+        publication = await client.get("/opds/v2/publications/not-canonical")
+        artifact = await client.get("/opds/v2/acquisitions/not-canonical")
+
+    assert publication.status_code == 404
+    assert artifact.status_code == 404
+    assert publication.json() == {"detail": "Catalog identifier not found"}
+    assert artifact.json() == {"detail": "Catalog identifier not found"}
+
+
+async def test_search_is_explicitly_unavailable_and_http_bounds_fail_closed(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
@@ -275,7 +300,7 @@ async def test_search_is_normalized_and_pagination_requires_page_alignment(
     app = create_app(config, catalog_fixture.catalog)
 
     async with app_client(app) as client:
-        normalized = await client.get(
+        unavailable = await client.get(
             "/opds/v2/search",
             params={"query": "  cobalt\t adventure  ", "limit": 2},
         )
@@ -284,16 +309,28 @@ async def test_search_is_normalized_and_pagination_requires_page_alignment(
             "/opds/v2/publications",
             params={"offset": 1, "limit": 2},
         )
+        excessive_limit = await client.get(
+            "/opds/v2/publications",
+            params={"limit": 129},
+        )
+        zero_revision = await client.get(
+            "/opds/v2/publications",
+            params={"revision": 0},
+        )
+        excessive_offset = await client.get(
+            "/opds/v2/publications",
+            params={"offset": 1 << 63},
+        )
 
-    assert normalized.status_code == 200
-    assert catalog_fixture.catalog.list_calls[-1] == (
-        "cobalt adventure",
-        0,
-        2,
-    )
-    assert "query=cobalt+adventure" in normalized.json()["links"][0]["href"]
+    assert unavailable.status_code == 501
+    assert unavailable.json() == {
+        "detail": "Catalog search is unavailable until its bounded index is built"
+    }
     assert blank.status_code == 422
     assert misaligned.status_code == 422
+    assert excessive_limit.status_code == 422
+    assert zero_revision.status_code == 422
+    assert excessive_offset.status_code == 422
 
 
 async def test_publication_omits_blank_metadata_and_uses_standard_link_size(
@@ -308,7 +345,7 @@ async def test_publication_omits_blank_metadata_and_uses_standard_link_size(
         language="ZH_hant_tw",
         contributors=(
             CatalogContributor(name=" ", role="artist"),
-            CatalogContributor(name=" Artist ", role="ARTIST", sort_as=" "),
+            CatalogContributor(name=" Artist ", role="ARTIST"),
         ),
         subjects=(
             CatalogSubject(name=" ", scheme="", code=""),

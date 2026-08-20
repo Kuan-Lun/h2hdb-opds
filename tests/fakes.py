@@ -29,9 +29,9 @@ class FakeCatalog:
         self.revision_lookups: list[int | None] = []
         self.list_calls: list[tuple[str | None, int, int]] = []
         self.require_artifact_calls: list[bool] = []
-        self.list_revisions: list[CatalogRevision | None] = []
-        self.publication_revisions: list[CatalogRevision | None] = []
-        self.artifact_revisions: list[CatalogRevision | None] = []
+        self.list_revisions: list[CatalogRevision | int | None] = []
+        self.publication_revisions: list[CatalogRevision | int | None] = []
+        self.artifact_revisions: list[CatalogRevision | int | None] = []
 
     def add_revision(
         self,
@@ -52,10 +52,25 @@ class FakeCatalog:
 
     def _publications_at(
         self,
-        revision: CatalogRevision | None,
+        revision: CatalogRevision | int | None,
     ) -> tuple[CatalogPublication, ...]:
-        selected_revision = revision or self.revision
-        return self._snapshots[selected_revision.revision][1]
+        selected_revision = self.revision if revision is None else revision
+        revision_number = (
+            selected_revision
+            if isinstance(selected_revision, int)
+            else selected_revision.revision
+        )
+        return self._snapshots[revision_number][1]
+
+    def _revision_at(
+        self,
+        revision: CatalogRevision | int | None,
+    ) -> CatalogRevision:
+        if revision is None:
+            return self.revision
+        if isinstance(revision, int):
+            return self._snapshots[revision][0]
+        return revision
 
     def list_publications(
         self,
@@ -63,9 +78,10 @@ class FakeCatalog:
         query: str | None = None,
         offset: int = 0,
         limit: int = 50,
-        revision: CatalogRevision | None = None,
+        revision: CatalogRevision | int | None = None,
         require_artifact: bool = False,
     ) -> CatalogPage:
+        assert 1 <= limit <= 128
         self.list_calls.append((query, offset, limit))
         self.require_artifact_calls.append(require_artifact)
         self.list_revisions.append(revision)
@@ -87,7 +103,7 @@ class FakeCatalog:
             )
         )
         return CatalogPage(
-            revision=revision or self.revision,
+            revision=self._revision_at(revision),
             publications=matches[offset : offset + limit],
             offset=offset,
             limit=limit,
@@ -98,7 +114,7 @@ class FakeCatalog:
         self,
         publication_id: str,
         *,
-        revision: CatalogRevision | None = None,
+        revision: CatalogRevision | int | None = None,
     ) -> CatalogPublication | None:
         self.publication_revisions.append(revision)
         return next(
@@ -114,7 +130,7 @@ class FakeCatalog:
         self,
         names: Sequence[str],
         *,
-        revision: CatalogRevision | None = None,
+        revision: CatalogRevision | int | None = None,
     ) -> Mapping[str, CatalogPublication]:
         requested = set(names)
         return {
@@ -128,7 +144,7 @@ class FakeCatalog:
         self,
         artifact_id: str,
         *,
-        revision: CatalogRevision | None = None,
+        revision: CatalogRevision | int | None = None,
     ) -> CatalogArtifact | None:
         self.artifact_revisions.append(revision)
         return next(
@@ -186,9 +202,7 @@ def build_catalog_fixture(tmp_path: Path) -> CatalogFixture:
             language="en",
             published_at=timestamp,
             modified_at=timestamp,
-            contributors=(
-                CatalogContributor(name="Alice", role="artist", sort_as="Alice"),
-            ),
+            contributors=(CatalogContributor(name="Alice", role="artist"),),
             subjects=(
                 CatalogSubject(name="fantasy", scheme="tag", code="f"),
                 CatalogSubject(name="", scheme="h2h:tag:misc", code="misc"),

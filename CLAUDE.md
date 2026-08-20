@@ -10,8 +10,9 @@ This file provides repository guidance to Claude Code and other coding agents.
 
 `h2hdb-opds` exposes an H2HDB catalog through an OPDS 2.0 HTTP service. It owns
 FastAPI and ASGI integration, OPDS models and serialization, navigation,
-publications, search, pagination, authentication, and acquisition responses
-including Range and conditional HTTP behavior.
+bounded publication pagination, an explicit 501 search stub until core has its
+bounded index, authentication, and acquisition responses including Range and
+conditional HTTP behavior.
 
 The `h2hdb` core package exclusively owns database connectors, transactions,
 schema migrations, durable queues, coordination fencing, and catalog
@@ -29,8 +30,8 @@ directly; it does not need a legacy `SchemaCompatibility` or
   configuration models.
 - `app.py` wires the FastAPI lifespan and routes to a public
   `CatalogReader`.
-- `serialization.py` owns OPDS feed, publication, navigation, search template,
-  and pagination serialization.
+- `serialization.py` owns OPDS feed, publication, navigation, and pagination
+  serialization. It does not advertise unavailable search.
 - `auth.py` owns Basic authentication and the public OPDS authentication
   document. Credential comparisons must use `secrets.compare_digest`.
 - `acquisition.py` owns artifact file responses and HTTP validators/ranges.

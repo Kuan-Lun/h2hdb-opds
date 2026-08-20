@@ -37,13 +37,6 @@ def _url_with_query(url: str, parameters: dict[str, str | int]) -> str:
     return f"{url}?{urlencode(parameters)}"
 
 
-def _search_template(request: Request, config: OPDSConfig, revision: int) -> str:
-    return (
-        f"{external_url(request, config, 'search_publications')}?revision={revision}"
-        "{&query,offset,limit}"
-    )
-
-
 def _common_links(
     request: Request,
     config: OPDSConfig,
@@ -57,12 +50,6 @@ def _common_links(
                 {"revision": revision},
             ),
             "type": OPDS_FEED_MEDIA_TYPE,
-        },
-        {
-            "rel": "search",
-            "href": _search_template(request, config, revision),
-            "type": OPDS_FEED_MEDIA_TYPE,
-            "templated": True,
         },
         {
             "rel": AUTHENTICATION_DOCUMENT_REL,
@@ -111,13 +98,6 @@ def navigation_document(
                 "type": OPDS_FEED_MEDIA_TYPE,
                 "rel": "subsection",
             },
-            {
-                "title": "Search",
-                "href": _search_template(request, config, revision.revision),
-                "type": OPDS_FEED_MEDIA_TYPE,
-                "rel": "search",
-                "templated": True,
-            },
         ],
     }
 
@@ -142,8 +122,6 @@ def _contributor_metadata(publication: CatalogPublication) -> dict[str, object]:
         role = contributor.role.strip().casefold()
         key = role if role in supported_roles else "contributor"
         serialized = {"name": name, "role": role or "contributor"}
-        if contributor.sort_as is not None and contributor.sort_as.strip():
-            serialized["sortAs"] = contributor.sort_as.strip()
         contributors.setdefault(key, []).append(serialized)
     result: dict[str, object] = {}
     for key, value in contributors.items():

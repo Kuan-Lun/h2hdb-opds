@@ -80,6 +80,18 @@ def test_database_access_is_read_only_by_default_and_forced(
     assert raw_writable.core.database.access_mode is DatabaseAccessMode.read_only
 
 
+def test_catalog_page_configuration_is_bounded_by_core(
+    opds_config: OPDSConfig,
+) -> None:
+    assert opds_config.maximum_page_size == 128
+    with pytest.raises(ValueError):
+        OPDSConfig(
+            artifact_root=opds_config.artifact_root,
+            public_base_url=opds_config.public_base_url,
+            maximum_page_size=129,
+        )
+
+
 async def test_injected_catalog_starts_without_a_legacy_compatibility_hook(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,

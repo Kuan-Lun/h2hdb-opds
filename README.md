@@ -2,8 +2,9 @@
 
 `h2hdb-opds` exposes an H2HDB catalog as an OPDS 2.0 HTTP service. Its boundary
 includes FastAPI/ASGI integration, OPDS models and serialization, navigation,
-publications, search, pagination, authentication, and acquisition responses
-with Range and conditional HTTP support.
+bounded publication pagination, authentication, and acquisition responses with
+Range and conditional HTTP support. The search route is reserved but not
+advertised until core supplies its bounded index.
 
 Database connectors, schema migrations, durable queues, coordination fencing,
 and catalog persistence remain owned by the `h2hdb` core package. This service
@@ -42,7 +43,7 @@ Create a JSON configuration such as:
   },
   "title": "My H2HDB Catalog",
   "default_page_size": 50,
-  "maximum_page_size": 200,
+  "maximum_page_size": 128,
   "auth": {
     "username": "reader",
     "password": "${H2HDB_OPDS_AUTH_PASSWORD}",
@@ -126,7 +127,8 @@ uv run --no-sync h2hdb-opds --config opds.json
 - `GET /health`
 - `GET /opds/v2`
 - `GET /opds/v2/publications?offset=0&limit=50&revision=N`
-- `GET /opds/v2/search?query=term&offset=0&limit=50&revision=N`
+- `GET /opds/v2/search?query=term` (reserved; returns 501 until the bounded
+  core search index is available)
 - `GET /opds/v2/publications/{publication_id}?revision=N`
 - `GET|HEAD /opds/v2/acquisitions/{artifact_id}?revision=N`
 - `GET /opds/v2/authentication`
@@ -159,14 +161,15 @@ explicit revision selects that retained historical snapshot. The resolved
 remains on the same snapshot even after a newer revision is published. A missing
 revision returns 404 and is never silently replaced with current data.
 
-OPDS publication and search pages request only rows with at least one artifact
-through core's pinned-revision `require_artifact` filter. This keeps feed totals,
+OPDS publication pages request only rows with at least one artifact through
+core's pinned-revision `require_artifact` filter. This keeps feed totals,
 navigation counts, page links, and OPDS's required acquisition links consistent.
-Offsets must be aligned to the selected page size. Search input is trimmed and
-collapsed before core performs literal matching, including literal `%`, `_`, and
-`!` characters. Blank optional metadata is omitted, language tags are normalized
-and validated as BCP 47, and acquisition Link Objects expose the standard `size`
-field.
+Page sizes are capped at 128 and offsets must align to the selected page size.
+Search is deliberately not advertised while the core's bounded search index is
+an explicit readiness blocker; the reserved route returns 501 instead of
+performing an unbounded scan. Blank optional metadata is omitted, language tags
+are normalized and validated as BCP 47, and acquisition Link Objects expose the
+standard `size` field.
 
 ## Development
 

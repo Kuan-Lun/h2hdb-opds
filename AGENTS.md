@@ -13,7 +13,8 @@ This repository owns:
 
 - FastAPI and ASGI integration;
 - OPDS 2.0 models and serialization;
-- navigation, publications, search, and pagination;
+- navigation, bounded publication pagination, and an explicit 501 search stub
+  until core supplies its bounded index;
 - authentication;
 - acquisition, Range, and conditional HTTP responses.
 
@@ -34,8 +35,8 @@ already-initialized boundary and is used directly; it does not need a legacy
   configuration models.
 - `app.py` wires the FastAPI lifespan and routes to a public
   `CatalogReader`.
-- `serialization.py` owns OPDS feed, publication, navigation, search template,
-  and pagination serialization.
+- `serialization.py` owns OPDS feed, publication, navigation, and pagination
+  serialization. It must not advertise unavailable search.
 - `auth.py` owns Basic authentication and the public OPDS authentication
   document. Credential comparisons must use `secrets.compare_digest`.
 - `acquisition.py` owns artifact file responses and HTTP validators/ranges.

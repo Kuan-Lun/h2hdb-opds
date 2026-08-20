@@ -128,8 +128,8 @@ class OPDSConfig(ConfigModel):
     auth: BasicAuthConfig = Field(default_factory=BasicAuthConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     title: str = Field(default="H2HDB Catalog", min_length=1)
-    default_page_size: int = Field(default=50, ge=1, le=200)
-    maximum_page_size: int = Field(default=200, ge=1, le=200)
+    default_page_size: int = Field(default=50, ge=1, le=128)
+    maximum_page_size: int = Field(default=128, ge=1, le=128)
 
     @field_validator("artifact_root")
     @classmethod
