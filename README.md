@@ -9,13 +9,12 @@ advertised until core supplies its bounded index.
 Database connectors, schema migrations, durable queues, coordination fencing,
 and catalog persistence remain owned by the `h2hdb` core package. This service
 uses only the core catalog-reading public interface and opens database access
-in read-only mode. Production startup delegates the current v1-v7
-migration-ledger compatibility check to core's `open_database()` and never runs
-migrations. A caller-injected `CatalogReader` is treated as already initialized
-and does not need the `SchemaCompatibility` or `check_compatibility()` API.
+in read-only mode. Production startup delegates the exact epoch-2 `READY` audit
+to core's `open_database()` and never initializes or migrates schema. A
+caller-injected `CatalogReader` is treated as already initialized.
 
-This release line targets `h2hdb>=0.22.0.2,<0.23`. The epoch-2 schema introduced
-by `h2hdb` 0.23 is a separate, incompatible release line.
+This release line targets `h2hdb>=0.23.0.3,<0.24` and only reads the greenfield
+epoch-2 schema.
 
 `h2hdb-opds` does not own or synchronize a second database. It reads the
 core-owned H2HDB database: use the same SQLite file in read-only mode, or use a
@@ -116,9 +115,9 @@ requests that still arrive with an insecure effective scheme return 426 without
 issuing a Basic challenge. The public authentication document remains available
 without credentials.
 
-The database must already expose the current compatible v1-v7 schema; catalog
+The database must already expose the current epoch-2 `READY` schema; catalog
 routes return no feed until at least one revision has been published. Initialize
-a truly empty database first with core-owned `migrate` tooling and write
+a truly empty database first with core-owned `migrate` tooling and writer
 credentials (normally through the ingest deployment), then start this read-only
 service:
 
