@@ -7,7 +7,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from h2hdb import (
-    CatalogIdentifierError,
     CatalogReader,
     CatalogRevision,
     CatalogRevisionNotFoundError,
@@ -63,16 +62,6 @@ def create_app(
         lifespan=lifespan,
     )
     authenticator = BasicAuthenticator(settings)
-
-    @application.exception_handler(CatalogIdentifierError)
-    async def handle_catalog_identifier_error(
-        _request: Request,
-        _error: CatalogIdentifierError,
-    ) -> JSONResponse:
-        return JSONResponse(
-            {"detail": "Catalog identifier not found"},
-            status_code=404,
-        )
 
     @application.exception_handler(AuthenticationRequired)
     async def handle_authentication_required(

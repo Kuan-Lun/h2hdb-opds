@@ -23,11 +23,11 @@ schema and migrations, durable queues, coordination fencing, and catalog
 repositories. Depend only on core public interfaces. Do not import connector or
 repository internals and do not create or migrate schema here. Database access
 is always forced to read-only, and the service exposes only published catalog
-revisions. Production startup uses `open_database()` for its compatibility
-and READY-state check. An injected `CatalogReader` is a caller-supplied,
-already-initialized boundary and is used directly; it does not need a legacy
-`SchemaCompatibility` or `check_compatibility()` hook. No startup path may call
-`migrate()`.
+revisions. Production startup uses `open_database()` for the current v1-v7
+migration-ledger compatibility check. An injected `CatalogReader` is a
+caller-supplied, already-initialized boundary and is used directly; it does not
+need a `SchemaCompatibility` or `check_compatibility()` hook. No startup path
+may call `migrate()`.
 
 ## Module Layout and HTTP Invariants
 

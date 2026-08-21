@@ -19,9 +19,9 @@ schema migrations, durable queues, coordination fencing, and catalog
 repositories. Use only core public interfaces. Never import connector or
 repository internals, create or migrate schema, or expose unpublished catalog
 state. Database access is always forced to read-only. Production startup calls
-the public `open_database()` compatibility and READY-state path. An injected
-`CatalogReader` is a caller-supplied, already-initialized boundary and is used
-directly; it does not need a legacy `SchemaCompatibility` or
+the public `open_database()` v1-v7 migration-ledger compatibility path. An
+injected `CatalogReader` is a caller-supplied, already-initialized boundary and
+is used directly; it does not need a `SchemaCompatibility` or
 `check_compatibility()` hook. No startup path may call `migrate()`.
 
 ## Module Layout and HTTP Invariants

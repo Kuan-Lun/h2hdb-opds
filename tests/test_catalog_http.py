@@ -1,10 +1,8 @@
 from dataclasses import replace
 from datetime import UTC, datetime
 
-import pytest
 from h2hdb import (
     CatalogContributor,
-    CatalogIdentifierError,
     CatalogRevision,
     CatalogSubject,
 )
@@ -258,36 +256,6 @@ async def test_artifactless_publications_are_filtered_with_accurate_counts(
     ]
     assert detail.status_code == 404
     assert catalog.require_artifact_calls == [True, True]
-
-
-async def test_noncanonical_catalog_path_identifiers_are_reported_as_not_found(
-    catalog_fixture: CatalogFixture,
-    opds_config: OPDSConfig,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def reject_identifier(*_args: object, **_kwargs: object) -> None:
-        raise CatalogIdentifierError("noncanonical")
-
-    monkeypatch.setattr(
-        catalog_fixture.catalog,
-        "get_publication",
-        reject_identifier,
-    )
-    monkeypatch.setattr(
-        catalog_fixture.catalog,
-        "get_artifact",
-        reject_identifier,
-    )
-    app = create_app(opds_config, catalog_fixture.catalog)
-
-    async with app_client(app) as client:
-        publication = await client.get("/opds/v2/publications/not-canonical")
-        artifact = await client.get("/opds/v2/acquisitions/not-canonical")
-
-    assert publication.status_code == 404
-    assert artifact.status_code == 404
-    assert publication.json() == {"detail": "Catalog identifier not found"}
-    assert artifact.json() == {"detail": "Catalog identifier not found"}
 
 
 async def test_search_is_explicitly_unavailable_and_http_bounds_fail_closed(
