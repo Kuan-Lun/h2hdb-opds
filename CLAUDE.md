@@ -76,6 +76,11 @@ uv run --no-sync python -m build
 
 Use `scripts/rebuild-env.sh` to recreate a damaged environment.
 
+## Branch Discipline
+
+Do not create or switch to a development branch. All development work must be
+performed directly on the repository's primary branch (`main`).
+
 ## Shared Finalization
 
 Provider-neutral hooks live in `scripts/hooks/` and are shared by humans and
