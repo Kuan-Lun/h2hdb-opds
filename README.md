@@ -13,7 +13,7 @@ in read-only mode. Production startup delegates the exact epoch-2 `READY` audit
 to core's `open_database()` and never initializes or migrates schema. A
 caller-injected `CatalogReader` is treated as already initialized.
 
-This release line targets `h2hdb>=0.23.0.3,<0.24` and only reads the greenfield
+This release line targets `h2hdb>=0.23.0.4,<0.24` and only reads the greenfield
 epoch-2 schema.
 
 `h2hdb-opds` does not own or synchronize a second database. It reads the
