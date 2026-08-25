@@ -13,7 +13,7 @@ in read-only mode. Production startup delegates the exact epoch-2 `READY` audit
 to core's `open_database()` and never initializes or migrates schema. A
 caller-injected `CatalogReader` is treated as already initialized.
 
-This release line targets `h2hdb>=0.23.0.10,<0.24` and only reads the greenfield
+This release line targets `h2hdb>=0.23.0.11,<0.24` and only reads the greenfield
 epoch-2 schema.
 
 `h2hdb-opds` does not own or synchronize a second database. It reads the
@@ -158,11 +158,12 @@ UTF-8 `filename*` parameters in `Content-Disposition`; storage names such as
 requirement.
 
 Every generated feed, publication, pagination, and acquisition link carries its
-selected catalog revision. An omitted revision selects the current snapshot; an
-explicit revision selects that retained historical snapshot. The resolved
-`CatalogRevision` is passed into every core read, so following an older page link
-remains on the same snapshot even after a newer revision is published. A missing
-revision returns 404 and is never silently replaced with current data.
+selected catalog revision. An omitted revision selects the current head; an
+explicit revision is accepted only when it equals that head. The resolved
+`CatalogRevision` is passed into every core read so one response cannot mix
+revisions. After a newer head is published, links pinned to the previous
+revision return 404 instead of exposing history or silently switching to current
+data.
 
 OPDS publication pages request only rows with at least one artifact through
 core's pinned-revision `require_artifact` filter. This keeps feed totals,

@@ -23,9 +23,6 @@ class FakeCatalog:
             published_at=datetime(2026, 8, 5, 12, 0, tzinfo=UTC),
             publication_count=len(publications),
         )
-        self._snapshots = {
-            self.revision.revision: (self.revision, publications),
-        }
         self.revision_lookups: list[int | None] = []
         self.list_calls: list[tuple[str | None, int, int]] = []
         self.require_artifact_calls: list[bool] = []
@@ -38,29 +35,21 @@ class FakeCatalog:
         revision: CatalogRevision,
         publications: tuple[CatalogPublication, ...],
     ) -> None:
-        self._snapshots[revision.revision] = (revision, publications)
         self.revision = revision
         self.publications = publications
 
     def get_catalog_revision(self, revision: int | None = None) -> CatalogRevision:
         self.revision_lookups.append(revision)
-        selected_revision = self.revision.revision if revision is None else revision
-        try:
-            return self._snapshots[selected_revision][0]
-        except KeyError as error:
-            raise CatalogRevisionNotFoundError(selected_revision) from error
+        if revision is not None and revision != self.revision.revision:
+            raise CatalogRevisionNotFoundError(revision)
+        return self.revision
 
     def _publications_at(
         self,
         revision: CatalogRevision | int | None,
     ) -> tuple[CatalogPublication, ...]:
-        selected_revision = self.revision if revision is None else revision
-        revision_number = (
-            selected_revision
-            if isinstance(selected_revision, int)
-            else selected_revision.revision
-        )
-        return self._snapshots[revision_number][1]
+        self._revision_at(revision)
+        return self.publications
 
     def _revision_at(
         self,
@@ -69,8 +58,12 @@ class FakeCatalog:
         if revision is None:
             return self.revision
         if isinstance(revision, int):
-            return self._snapshots[revision][0]
-        return revision
+            if revision != self.revision.revision:
+                raise CatalogRevisionNotFoundError(revision)
+            return self.revision
+        if revision.revision != self.revision.revision:
+            raise CatalogRevisionNotFoundError(revision.revision)
+        return self.revision
 
     def list_publications(
         self,

@@ -57,11 +57,13 @@ Catalog listing and counts use core's pinned `require_artifact` filter so every
 serialized OPDS Publication has an acquisition link.
 
 All feed, publication, pagination, and acquisition links carry their selected
-revision. Resolve an omitted revision to the current snapshot and an explicit
-revision through core's public revision-history lookup. Map a missing revision
-to an explicit 404, and pass the resolved `CatalogRevision` into every list,
-publication, and artifact read. Never fall back from a missing requested
-revision to current data or mix snapshots across pagination.
+revision. Always resolve the current head through core. An omitted revision
+selects that head, while an explicit revision is accepted only when it equals
+the current head; every other revision returns 404. Pass the resolved
+`CatalogRevision` into every list, publication, and artifact read. The pin keeps
+one response internally consistent, but it does not make historical revisions
+browsable after the head advances. Never replace a stale requested revision
+with current data or mix revisions within a response.
 
 ## Environment and Commands
 

@@ -1,7 +1,7 @@
 __all__ = ["create_app"]
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
@@ -101,15 +101,31 @@ def create_app(
         dependencies=[Depends(authenticator)],
     )
 
+    def revision_not_found(revision: int | None) -> HTTPException:
+        description = "current" if revision is None else str(revision)
+        return HTTPException(
+            status_code=404,
+            detail=f"Catalog revision {description} not found",
+        )
+
     def resolved_revision(requested: int | None) -> CatalogRevision:
         try:
-            return current_reader().get_catalog_revision(revision=requested)
+            current = current_reader().get_catalog_revision()
         except CatalogRevisionNotFoundError as error:
-            description = "current" if requested is None else str(requested)
-            raise HTTPException(
-                status_code=404,
-                detail=f"Catalog revision {description} not found",
-            ) from error
+            raise revision_not_found(requested) from error
+        if requested is not None and requested != current.revision:
+            raise revision_not_found(requested)
+        return current
+
+    @contextmanager
+    def pinned_revision_read(selected: CatalogRevision) -> Iterator[None]:
+        try:
+            yield
+        except CatalogRevisionNotFoundError as error:
+            # The head may advance after it was resolved but before the pinned
+            # read starts.  Preserve the selected revision and fail closed;
+            # retrying against the new current head would mix responses.
+            raise revision_not_found(selected.revision) from error
 
     @protected.get("", name="navigation", response_class=JSONResponse)
     def navigation(
@@ -117,12 +133,13 @@ def create_app(
         revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> JSONResponse:
         selected = resolved_revision(revision)
-        page = current_reader().list_publications(
-            offset=0,
-            limit=1,
-            revision=selected,
-            require_artifact=True,
-        )
+        with pinned_revision_read(selected):
+            page = current_reader().list_publications(
+                offset=0,
+                limit=1,
+                revision=selected,
+                require_artifact=True,
+            )
         return JSONResponse(
             navigation_document(request, settings, selected, page.total),
             media_type=OPDS_FEED_MEDIA_TYPE,
@@ -158,12 +175,13 @@ def create_app(
         selected = resolved_revision(revision)
         selected_limit = resolved_limit(limit)
         validate_offset(offset, selected_limit)
-        page = current_reader().list_publications(
-            offset=offset,
-            limit=selected_limit,
-            revision=selected,
-            require_artifact=True,
-        )
+        with pinned_revision_read(selected):
+            page = current_reader().list_publications(
+                offset=offset,
+                limit=selected_limit,
+                revision=selected,
+                require_artifact=True,
+            )
         return JSONResponse(
             publications_document(
                 request,
@@ -205,10 +223,11 @@ def create_app(
         revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> JSONResponse:
         selected = resolved_revision(revision)
-        publication = current_reader().get_publication(
-            publication_id,
-            revision=selected,
-        )
+        with pinned_revision_read(selected):
+            publication = current_reader().get_publication(
+                publication_id,
+                revision=selected,
+            )
         if publication is None or not publication.artifacts:
             raise HTTPException(status_code=404, detail="Publication not found")
         return JSONResponse(
@@ -222,10 +241,11 @@ def create_app(
         revision: int | None,
     ) -> Response:
         selected = resolved_revision(revision)
-        artifact = current_reader().get_artifact(
-            artifact_id,
-            revision=selected,
-        )
+        with pinned_revision_read(selected):
+            artifact = current_reader().get_artifact(
+                artifact_id,
+                revision=selected,
+            )
         if artifact is None:
             raise HTTPException(status_code=404, detail="Artifact not found")
         return serve_artifact(

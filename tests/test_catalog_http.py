@@ -1,5 +1,7 @@
 from dataclasses import replace
 from datetime import UTC, datetime
+from typing import Any
+from unittest.mock import patch
 
 from h2hdb import (
     CatalogContributor,
@@ -94,7 +96,9 @@ async def test_publications_pagination_and_single_document(
 
     async with app_client(app) as client:
         first_page = await client.get("/opds/v2/publications")
-        second_page = await client.get("/opds/v2/publications?offset=2&limit=2")
+        second_page = await client.get(
+            "/opds/v2/publications?offset=2&limit=2&revision=7"
+        )
         publication = await client.get("/opds/v2/publications/publication-alpha")
         missing = await client.get("/opds/v2/publications/missing")
 
@@ -166,13 +170,13 @@ async def test_missing_revision_returns_404_before_catalog_reads(
     for response in (navigation, feed, detail, acquisition):
         assert response.status_code == 404
         assert response.json()["detail"] == "Catalog revision 404 not found"
-    assert catalog_fixture.catalog.revision_lookups == [404] * 4
+    assert catalog_fixture.catalog.revision_lookups == [None] * 4
     assert catalog_fixture.catalog.list_revisions == []
     assert catalog_fixture.catalog.publication_revisions == []
     assert catalog_fixture.catalog.artifact_revisions == []
 
 
-async def test_old_revision_next_page_remains_readable_after_current_advances(
+async def test_old_revision_links_return_404_after_current_advances(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
@@ -180,7 +184,7 @@ async def test_old_revision_next_page_remains_readable_after_current_advances(
         opds_config.model_copy(update={"default_page_size": 2, "maximum_page_size": 2}),
         catalog_fixture.catalog,
     )
-    historical_revision = catalog_fixture.catalog.revision
+    original_revision = catalog_fixture.catalog.revision
 
     async with app_client(app) as client:
         first_page = await client.get("/opds/v2/publications")
@@ -206,34 +210,120 @@ async def test_old_revision_next_page_remains_readable_after_current_advances(
         new_current_page = await client.get("/opds/v2/publications")
 
     assert first_page.status_code == 200
-    assert old_next_page.status_code == 200
-    old_document = old_next_page.json()
-    assert old_document["metadata"]["numberOfItems"] == 3
-    assert old_document["metadata"]["currentPage"] == 2
-    assert [
-        publication["metadata"]["identifier"]
-        for publication in old_document["publications"]
-    ] == ["publication-gamma"]
-    assert all(
-        "revision=7" in link["href"]
-        for link in old_document["links"]
-        if link["rel"] != AUTHENTICATION_DOCUMENT_REL
-    )
-    assert old_detail.status_code == 200
-    assert old_detail.json()["metadata"]["identifier"] == "publication-alpha"
-    assert old_acquisition.status_code == 200
-    assert old_acquisition.content == catalog_fixture.payload
+    assert "revision=7" in next_url
+    for response in (old_next_page, old_detail, old_acquisition):
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Catalog revision 7 not found"}
 
     new_document = new_current_page.json()
     assert new_document["metadata"]["numberOfItems"] == 1
     assert "revision=8" in new_document["links"][0]["href"]
-    assert catalog_fixture.catalog.revision_lookups[-4:] == [7, 7, 7, None]
-    assert catalog_fixture.catalog.list_revisions[-2:] == [
-        historical_revision,
+    assert catalog_fixture.catalog.revision_lookups == [None] * 5
+    assert catalog_fixture.catalog.list_revisions == [
+        original_revision,
         catalog_fixture.catalog.revision,
     ]
-    assert catalog_fixture.catalog.publication_revisions[-1] == historical_revision
-    assert catalog_fixture.catalog.artifact_revisions[-1] == historical_revision
+    assert catalog_fixture.catalog.publication_revisions == []
+    assert catalog_fixture.catalog.artifact_revisions == []
+
+
+async def test_list_race_after_current_resolution_returns_404_without_fallback(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+) -> None:
+    app = create_app(opds_config, catalog_fixture.catalog)
+    selected = catalog_fixture.catalog.revision
+    original_read = catalog_fixture.catalog.list_publications
+
+    def advance_then_read(*args: Any, **kwargs: Any) -> Any:
+        catalog_fixture.catalog.add_revision(
+            CatalogRevision(
+                revision=8,
+                published_at=datetime(2026, 8, 6, 12, 0, tzinfo=UTC),
+                publication_count=1,
+            ),
+            (catalog_fixture.publications[1],),
+        )
+        return original_read(*args, **kwargs)
+
+    with patch.object(
+        catalog_fixture.catalog,
+        "list_publications",
+        side_effect=advance_then_read,
+    ):
+        async with app_client(app) as client:
+            response = await client.get("/opds/v2/publications")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Catalog revision 7 not found"}
+    assert catalog_fixture.catalog.revision_lookups == [None]
+    assert catalog_fixture.catalog.list_revisions == [selected]
+
+
+async def test_detail_race_after_current_resolution_returns_404_without_fallback(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+) -> None:
+    app = create_app(opds_config, catalog_fixture.catalog)
+    selected = catalog_fixture.catalog.revision
+    original_read = catalog_fixture.catalog.get_publication
+
+    def advance_then_read(*args: Any, **kwargs: Any) -> Any:
+        catalog_fixture.catalog.add_revision(
+            CatalogRevision(
+                revision=8,
+                published_at=datetime(2026, 8, 6, 12, 0, tzinfo=UTC),
+                publication_count=1,
+            ),
+            (catalog_fixture.publications[1],),
+        )
+        return original_read(*args, **kwargs)
+
+    with patch.object(
+        catalog_fixture.catalog,
+        "get_publication",
+        side_effect=advance_then_read,
+    ):
+        async with app_client(app) as client:
+            response = await client.get("/opds/v2/publications/publication-alpha")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Catalog revision 7 not found"}
+    assert catalog_fixture.catalog.revision_lookups == [None]
+    assert catalog_fixture.catalog.publication_revisions == [selected]
+
+
+async def test_acquisition_race_after_current_resolution_returns_404_without_fallback(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+) -> None:
+    app = create_app(opds_config, catalog_fixture.catalog)
+    selected = catalog_fixture.catalog.revision
+    original_read = catalog_fixture.catalog.get_artifact
+
+    def advance_then_read(*args: Any, **kwargs: Any) -> Any:
+        catalog_fixture.catalog.add_revision(
+            CatalogRevision(
+                revision=8,
+                published_at=datetime(2026, 8, 6, 12, 0, tzinfo=UTC),
+                publication_count=1,
+            ),
+            (catalog_fixture.publications[1],),
+        )
+        return original_read(*args, **kwargs)
+
+    with patch.object(
+        catalog_fixture.catalog,
+        "get_artifact",
+        side_effect=advance_then_read,
+    ):
+        async with app_client(app) as client:
+            response = await client.get("/opds/v2/acquisitions/artifact-alpha")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Catalog revision 7 not found"}
+    assert catalog_fixture.catalog.revision_lookups == [None]
+    assert catalog_fixture.catalog.artifact_revisions == [selected]
 
 
 async def test_artifactless_publications_are_filtered_with_accurate_counts(
