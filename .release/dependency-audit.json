@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-08-26T08:18:37+00:00",
+  "checked_at": "2026-08-26T09:22:52+00:00",
   "manifest_sha256": "b792e223919350426fbce424b0016bc167b00b293ebda20c4d0f2242d5fc8ae6",
   "node": [
     {
@@ -9,7 +9,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.4.5",
+  "project_version": "0.4.6",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -130,7 +130,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all direct build, runtime, development, and Node dependencies against global latest releases on 2026-08-26. Every Python latest remains within declared bounds and publishes Python 3.14-compatible files; npm confirms markdownlint-cli2 0.23.2 satisfies its declared range. A clean Python 3.14.1 rebuild selected the latest candidates and passed strict checks, 38 tests, build, and installed-wheel CLI/import smoke. Existing lower bounds remain valid minimum contracts; no dependency declaration change is required.",
+    "note": "A fresh complete direct build, runtime, development, and Node registry query for this GPL metadata-only release returned the same latest candidates as the earlier same-day clean audit. Applicable upstream release notes were reviewed; every latest candidate remains within the declared ranges and publishes Python 3.14-compatible distributions. Dependency declarations are unchanged, so no compatibility fix is required; the merge gate separately verifies the exact release candidate.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
