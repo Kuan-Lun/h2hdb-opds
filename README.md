@@ -122,7 +122,7 @@ credentials (normally through the ingest deployment), then start this read-only
 service:
 
 ```bash
-uv run --no-sync h2hdb-opds --config opds.json
+.venv/bin/h2hdb-opds --config opds.json
 ```
 
 ## HTTP API
@@ -177,25 +177,16 @@ standard `size` field.
 
 ## Development
 
-Create a repository-local environment and install the package in editable mode:
+Rebuild the repository-local environment and run its canonical gates:
 
 ```bash
-uv venv --python 3.14
-uv pip install -e ".[dev]"
+./scripts/rebuild-env.sh
+./scripts/check-fast.sh
+./scripts/check-full.sh
 ```
 
-Run the standard checks through that environment:
-
-```bash
-uv run --no-sync ruff check .
-uv run --no-sync mypy src tests
-uv run --no-sync pytest
-uv run --no-sync python -m build
-```
-
-Use `scripts/rebuild-env.sh` to recreate a damaged environment. This repository
-does not use a uv workspace and does not commit or depend on `uv.lock`.
-`--no-sync` keeps execution tied to the explicitly rebuilt editable environment.
+The rebuild script uses `uv` only to create `.venv` and install through its pip
+interface; it never reads `uv.lock` or assumes an adjacent repository checkout.
 
 ## License
 
