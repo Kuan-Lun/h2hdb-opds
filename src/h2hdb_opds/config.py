@@ -156,7 +156,7 @@ class OPDSConfig(ConfigModel):
         if parsed.scheme.casefold() not in {"http", "https"} or not parsed.hostname:
             raise ValueError("public_base_url must be an absolute HTTP(S) URL")
         try:
-            parsed.port
+            _ = parsed.port
         except ValueError as error:
             raise ValueError("public_base_url contains an invalid port") from error
         if parsed.username is not None or parsed.password is not None:

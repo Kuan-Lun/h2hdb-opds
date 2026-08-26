@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "h2hdb-opds"
-version = "0.4.4"
+version = "0.4.5"
 description = "OPDS 2.0 HTTP service for H2HDB catalogs"
 readme = "README.md"
 authors = [{ name = "Kuan-Lun Wang" }]
 license = { file = "LICENSE" }
-requires-python = ">=3.14,<3.15"
+requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.141.1,<1.0.0",
     "h2hdb>=0.23.0.11,<0.24",
@@ -30,10 +30,10 @@ h2hdb-opds = "h2hdb_opds.__main__:main"
 [project.optional-dependencies]
 dev = [
     "build>=1.5.0",
-    "black>=26.5.1",
+    "hatchling>=1.32.0,<2.0.0",
     "httpx>=0.28.1,<1.0.0",
     "mypy>=2.3.1",
-    "pymarkdownlnt>=0.9.39",
+    "packaging>=26.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.4",
@@ -47,16 +47,26 @@ Tracker = "https://github.com/Kuan-Lun/h2hdb-opds/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/h2hdb_opds"]
 
-[tool.black]
-target-version = ["py314"]
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 88
 target-version = "py314"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-extend-ignore = ["E203", "E226", "E501"]
+select = ["B", "C4", "E", "F", "I", "PIE", "RUF", "UP"]
+# Ruff format can intentionally retain long URLs, strings, and docstrings.
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.14"
+mypy_path = "src"
+files = ["src", "tests"]
+strict = true
+warn_unused_configs = true
+warn_unreachable = true
+
+[tool.h2h.version]
+release-paths = ["LICENSE", "src/**"]

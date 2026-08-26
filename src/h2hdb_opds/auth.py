@@ -1,6 +1,6 @@
 __all__ = [
-    "AUTHENTICATION_MEDIA_TYPE",
     "AUTHENTICATION_DOCUMENT_REL",
+    "AUTHENTICATION_MEDIA_TYPE",
     "AuthenticationRequired",
     "BasicAuthenticator",
     "InsecureAuthenticationTransport",
