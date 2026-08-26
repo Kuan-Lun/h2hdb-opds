@@ -205,7 +205,7 @@ def _content_disposition(published_name: str) -> str:
     download_name = _download_name(published_name)
     fallback = _ascii_download_name(download_name)
     encoded = quote(download_name, safe="")
-    return f'attachment; filename="{fallback}"; ' f"filename*=UTF-8''{encoded}"
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
 
 
 def _base_headers(artifact: CatalogArtifact) -> dict[str, str]:
