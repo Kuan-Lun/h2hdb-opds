@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "h2hdb-opds"
-version = "0.5.0"
+version = "0.6.0"
 description = "OPDS 2.0 HTTP service for H2HDB catalogs"
 readme = "README.md"
 authors = [{ name = "Kuan-Lun Wang" }]
