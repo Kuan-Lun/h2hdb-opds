@@ -1,8 +1,10 @@
 import os
 from dataclasses import replace
-from hashlib import sha256
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import quote
+
+from h2hdb import CatalogRevision
 
 from h2hdb_opds import OPDSConfig, create_app
 
@@ -41,18 +43,12 @@ async def test_full_get_and_head_use_published_artifact_metadata(
 
 async def test_download_name_uses_published_name_not_storage_path_and_is_safe(
     catalog_fixture: CatalogFixture,
-    tmp_path: Path,
     opds_config: OPDSConfig,
 ) -> None:
-    payload = catalog_fixture.payload
-    storage_name = f"{catalog_fixture.artifact.sha256}.cbz"
-    storage_path = tmp_path / storage_name
-    storage_path.write_bytes(payload)
     published_name = '../../ignored\r\nX-Evil: yes\\友善 Gallery "Title".cbz'
     artifact = replace(
         catalog_fixture.artifact,
         name=published_name,
-        location=storage_path,
     )
     publication = replace(catalog_fixture.publications[0], artifacts=(artifact,))
     catalog = FakeCatalog((publication,))
@@ -68,7 +64,7 @@ async def test_download_name_uses_published_name_not_storage_path_and_is_safe(
         'attachment; filename="Gallery Title.cbz"; '
         f"filename*=UTF-8''{encoded_published_name}"
     )
-    assert storage_name not in disposition
+    assert "hash-v1" not in disposition
     assert "ignored" not in disposition
     assert "X-Evil" not in disposition
     assert "\r" not in disposition
@@ -256,69 +252,57 @@ async def test_if_range_http_date_requires_exact_last_modified_match(
     assert later_response.content == catalog_fixture.payload
 
 
-async def test_artifact_must_be_beneath_root_and_must_not_be_a_symlink(
+async def test_artifact_path_rejects_symlinks_and_special_files(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
     tmp_path: Path,
 ) -> None:
-    trusted_root = tmp_path / "trusted"
+    trusted_root = tmp_path / "trusted-current"
     trusted_root.mkdir()
-    secure_config = opds_config.model_copy(update={"artifact_root": trusted_root})
+    secure_config = opds_config.model_copy(update={"library_root": trusted_root})
     outside_root = tmp_path / "outside.cbz"
     outside_root.write_bytes(catalog_fixture.payload)
-    symlink = trusted_root / "linked.cbz"
-    symlink.symlink_to(outside_root)
-    outside_directory = tmp_path / "outside-directory"
-    outside_directory.mkdir()
-    nested_payload = outside_directory / "nested.cbz"
-    nested_payload.write_bytes(catalog_fixture.payload)
-    linked_directory = trusted_root / "linked-directory"
-    linked_directory.symlink_to(outside_directory, target_is_directory=True)
-    fifo = trusted_root / "artifact.fifo"
-    os.mkfifo(fifo)
-    outside_artifact = replace(catalog_fixture.artifact, location=outside_root)
-    linked_artifact = replace(catalog_fixture.artifact, location=symlink)
-    nested_link_artifact = replace(
-        catalog_fixture.artifact,
-        location=linked_directory / "nested.cbz",
-    )
-    fifo_artifact = replace(catalog_fixture.artifact, location=fifo)
+    relative = Path(*catalog_fixture.artifact.storage_key.segments)
+    expected = trusted_root / relative
+    expected.parent.mkdir(parents=True)
+    expected.symlink_to(outside_root)
+    catalog = FakeCatalog((catalog_fixture.publications[0],))
 
-    outside_catalog = FakeCatalog(
-        (replace(catalog_fixture.publications[0], artifacts=(outside_artifact,)),)
-    )
-    linked_catalog = FakeCatalog(
-        (replace(catalog_fixture.publications[0], artifacts=(linked_artifact,)),)
-    )
-    nested_link_catalog = FakeCatalog(
-        (replace(catalog_fixture.publications[0], artifacts=(nested_link_artifact,)),)
-    )
-    fifo_catalog = FakeCatalog(
-        (replace(catalog_fixture.publications[0], artifacts=(fifo_artifact,)),)
-    )
-
-    async with app_client(create_app(secure_config, outside_catalog)) as client:
-        outside_response = await client.get("/opds/v2/acquisitions/artifact-alpha")
-    async with app_client(create_app(secure_config, linked_catalog)) as client:
+    async with app_client(create_app(secure_config, catalog)) as client:
         linked_response = await client.get("/opds/v2/acquisitions/artifact-alpha")
-    async with app_client(create_app(secure_config, nested_link_catalog)) as client:
+
+    expected.unlink()
+    shard_root = trusted_root / relative.parts[0]
+    directory = expected.parent
+    while directory != trusted_root:
+        parent = directory.parent
+        directory.rmdir()
+        directory = parent
+    outside_directory = tmp_path / "outside-directory"
+    nested_payload = outside_directory.joinpath(*relative.parts[1:])
+    nested_payload.parent.mkdir(parents=True)
+    nested_payload.write_bytes(catalog_fixture.payload)
+    shard_root.symlink_to(outside_directory, target_is_directory=True)
+
+    async with app_client(create_app(secure_config, catalog)) as client:
         nested_link_response = await client.get("/opds/v2/acquisitions/artifact-alpha")
-    async with app_client(create_app(secure_config, fifo_catalog)) as client:
+
+    shard_root.unlink()
+    expected.parent.mkdir(parents=True)
+    os.mkfifo(expected)
+    async with app_client(create_app(secure_config, catalog)) as client:
         fifo_response = await client.get("/opds/v2/acquisitions/artifact-alpha")
 
-    assert outside_response.status_code == 404
     assert linked_response.status_code == 404
     assert nested_link_response.status_code == 404
     assert fifo_response.status_code == 404
 
 
-async def test_artifact_sha256_is_verified_even_when_size_is_unchanged(
+async def test_artifact_size_contract_is_checked_without_hashing(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
-    replacement = b"x" * len(catalog_fixture.payload)
-    assert sha256(replacement).hexdigest() != catalog_fixture.artifact.sha256
-    catalog_fixture.artifact.location.write_bytes(replacement)
+    catalog_fixture.artifact_path.write_bytes(catalog_fixture.payload[:-1])
     app = create_app(opds_config, catalog_fixture.catalog)
 
     async with app_client(app) as client:
@@ -327,3 +311,57 @@ async def test_artifact_sha256_is_verified_even_when_size_is_unchanged(
 
     assert response.status_code == 409
     assert head.status_code == 409
+
+
+async def test_head_and_not_modified_do_not_read_artifact_payload(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+) -> None:
+    app = create_app(opds_config, catalog_fixture.catalog)
+    path = "/opds/v2/acquisitions/artifact-alpha"
+    etag = f'"{catalog_fixture.artifact.sha256}"'
+
+    with patch(
+        "h2hdb_opds.acquisition._read_file",
+        side_effect=AssertionError("payload must not be read"),
+    ):
+        async with app_client(app) as client:
+            head = await client.head(path)
+            not_modified = await client.get(path, headers={"If-None-Match": etag})
+
+    assert head.status_code == 200
+    assert not_modified.status_code == 304
+
+
+async def test_open_descriptor_stream_survives_atomic_leaf_replacement(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    tmp_path: Path,
+) -> None:
+    app = create_app(opds_config, catalog_fixture.catalog)
+    original_lookup = catalog_fixture.catalog.get_catalog_revision
+    replacement = b"x" * len(catalog_fixture.payload)
+    lookup_count = 0
+
+    def replace_before_head_revalidation(
+        revision: int | None = None,
+    ) -> CatalogRevision:
+        nonlocal lookup_count
+        lookup_count += 1
+        if lookup_count == 2:
+            replacement_path = tmp_path / "replacement.cbz"
+            replacement_path.write_bytes(replacement)
+            os.replace(replacement_path, catalog_fixture.artifact_path)
+        return original_lookup(revision)
+
+    with patch.object(
+        catalog_fixture.catalog,
+        "get_catalog_revision",
+        side_effect=replace_before_head_revalidation,
+    ):
+        async with app_client(app) as client:
+            response = await client.get("/opds/v2/acquisitions/artifact-alpha")
+
+    assert response.status_code == 200
+    assert response.content == catalog_fixture.payload
+    assert catalog_fixture.artifact_path.read_bytes() == replacement

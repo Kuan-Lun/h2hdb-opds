@@ -10,10 +10,16 @@ from datetime import UTC, datetime
 from urllib.parse import urlencode
 
 from fastapi import Request
-from h2hdb import CatalogPage, CatalogPublication, CatalogRevision
+from h2hdb import (
+    CatalogArtifactCursor,
+    CatalogArtifactPage,
+    CatalogPublication,
+    CatalogRevision,
+)
 
 from .auth import AUTHENTICATION_DOCUMENT_REL, AUTHENTICATION_MEDIA_TYPE
 from .config import OPDSConfig
+from .cursor import encode_artifact_cursor
 from .language import normalize_bcp47
 from .urls import external_url
 
@@ -208,91 +214,69 @@ def publication_document(
 
 def _pagination_links(
     request: Request,
-    page: CatalogPage,
+    page: CatalogArtifactPage,
     *,
+    cursor: CatalogArtifactCursor | None,
     endpoint: str,
-    query: str | None,
     config: OPDSConfig,
 ) -> list[dict[str, object]]:
     base_url = external_url(request, config, endpoint)
 
-    def page_url(offset: int) -> str:
+    def page_url(selected_cursor: CatalogArtifactCursor | None) -> str:
         parameters: dict[str, str | int] = {
-            "offset": offset,
             "limit": page.limit,
             "revision": page.revision.revision,
         }
-        if query is not None:
-            parameters = {"query": query, **parameters}
+        if selected_cursor is not None:
+            parameters["cursor"] = encode_artifact_cursor(selected_cursor)
         return _url_with_query(base_url, parameters)
 
     links: list[dict[str, object]] = [
         {
             "rel": "self",
-            "href": page_url(page.offset),
+            "href": page_url(cursor),
             "type": OPDS_FEED_MEDIA_TYPE,
         },
         {
             "rel": "first",
-            "href": page_url(0),
+            "href": page_url(None),
             "type": OPDS_FEED_MEDIA_TYPE,
         },
     ]
-    if page.offset > 0:
-        links.append(
-            {
-                "rel": "previous",
-                "href": page_url(max(0, page.offset - page.limit)),
-                "type": OPDS_FEED_MEDIA_TYPE,
-            }
-        )
-    if page.offset + len(page.publications) < page.total:
+    if page.next_cursor is not None:
         links.append(
             {
                 "rel": "next",
-                "href": page_url(page.offset + page.limit),
+                "href": page_url(page.next_cursor),
                 "type": OPDS_FEED_MEDIA_TYPE,
             }
         )
-    last_offset = (
-        0 if page.total == 0 else ((page.total - 1) // page.limit) * page.limit
-    )
-    links.append(
-        {
-            "rel": "last",
-            "href": page_url(last_offset),
-            "type": OPDS_FEED_MEDIA_TYPE,
-        }
-    )
     return links
 
 
 def publications_document(
     request: Request,
     config: OPDSConfig,
-    page: CatalogPage,
+    page: CatalogArtifactPage,
     *,
+    cursor: CatalogArtifactCursor | None,
     endpoint: str,
-    query: str | None = None,
 ) -> dict[str, object]:
-    current_page = page.offset // page.limit + 1
-    title = f'Search results for "{query}"' if query is not None else "All Publications"
     links = _pagination_links(
         request,
         page,
+        cursor=cursor,
         endpoint=endpoint,
-        query=query,
         config=config,
     )
     links.extend(_common_links(request, config, page.revision.revision))
     return {
         "metadata": {
             "@type": "http://schema.org/DataFeed",
-            "title": title,
+            "title": "All Publications",
             "modified": _format_datetime(page.revision.published_at),
             "numberOfItems": page.total,
             "itemsPerPage": page.limit,
-            "currentPage": current_page,
         },
         "links": links,
         "publications": [

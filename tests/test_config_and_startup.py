@@ -22,15 +22,18 @@ def test_loader_resolves_database_and_auth_secrets_from_environment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    artifact_root = tmp_path / "artifacts"
-    monkeypatch.setenv("H2HDB_OPDS_ARTIFACT_ROOT", str(artifact_root))
+    library_root = tmp_path / "current"
+    coordination_root = tmp_path / "coordination"
+    monkeypatch.setenv("H2HDB_OPDS_LIBRARY_ROOT", str(library_root))
+    monkeypatch.setenv("H2HDB_OPDS_COORDINATION_ROOT", str(coordination_root))
     monkeypatch.setenv("H2HDB_OPDS_DATABASE_PASSWORD", "read-secret")
     monkeypatch.setenv("H2HDB_OPDS_AUTH_PASSWORD", "reader-secret")
     config_path = tmp_path / "opds.json"
     config_path.write_text(
         json.dumps(
             {
-                "artifact_root": "${H2HDB_OPDS_ARTIFACT_ROOT}",
+                "library_root": "${H2HDB_OPDS_LIBRARY_ROOT}",
+                "coordination_root": "${H2HDB_OPDS_COORDINATION_ROOT}",
                 "public_base_url": "https://books.example",
                 "core": {
                     "database": {
@@ -51,7 +54,8 @@ def test_loader_resolves_database_and_auth_secrets_from_environment(
 
     config = load_config(config_path)
 
-    assert config.artifact_root == artifact_root
+    assert config.library_root == library_root
+    assert config.coordination_root == coordination_root
     assert config.core.database.password == "read-secret"
     assert config.auth.password is not None
     assert config.auth.password.get_secret_value() == "reader-secret"
@@ -63,13 +67,15 @@ def test_database_access_is_read_only_by_default_and_forced(
 ) -> None:
     default_config = opds_config
     explicitly_writable = OPDSConfig(
-        artifact_root=opds_config.artifact_root,
+        library_root=opds_config.library_root,
+        coordination_root=opds_config.coordination_root,
         public_base_url=opds_config.public_base_url,
         core=CoreConfig(),
     )
     raw_writable = OPDSConfig.model_validate(
         {
-            "artifact_root": str(opds_config.artifact_root),
+            "library_root": str(opds_config.library_root),
+            "coordination_root": str(opds_config.coordination_root),
             "public_base_url": opds_config.public_base_url,
             "core": {"database": {"access_mode": "read-write"}},
         }
@@ -80,13 +86,24 @@ def test_database_access_is_read_only_by_default_and_forced(
     assert raw_writable.core.database.access_mode is DatabaseAccessMode.read_only
 
 
+def test_legacy_artifact_root_is_not_a_compatibility_alias(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        OPDSConfig.model_validate(
+            {
+                "artifact_root": str(tmp_path / "artifacts"),
+                "public_base_url": "http://catalog.example",
+            }
+        )
+
+
 def test_catalog_page_configuration_is_bounded_by_core(
     opds_config: OPDSConfig,
 ) -> None:
     assert opds_config.maximum_page_size == 128
     with pytest.raises(ValueError):
         OPDSConfig(
-            artifact_root=opds_config.artifact_root,
+            library_root=opds_config.library_root,
+            coordination_root=opds_config.coordination_root,
             public_base_url=opds_config.public_base_url,
             maximum_page_size=129,
         )
@@ -113,31 +130,35 @@ def test_basic_auth_requires_https_and_an_explicit_tls_boundary(
 
     with pytest.raises(ValueError, match="HTTPS public_base_url"):
         OPDSConfig(
-            artifact_root=opds_config.artifact_root,
+            library_root=opds_config.library_root,
+            coordination_root=opds_config.coordination_root,
             public_base_url="http://books.example",
             auth=auth,
             server=ServerConfig(trusted_proxy_ips=("127.0.0.1",)),
         )
     with pytest.raises(ValueError, match="TLS-terminating proxy"):
         OPDSConfig(
-            artifact_root=opds_config.artifact_root,
+            library_root=opds_config.library_root,
+            coordination_root=opds_config.coordination_root,
             public_base_url="https://books.example",
             auth=auth,
         )
 
     proxied = OPDSConfig(
-        artifact_root=opds_config.artifact_root,
+        library_root=opds_config.library_root,
+        coordination_root=opds_config.coordination_root,
         public_base_url="https://books.example",
         auth=auth,
         server=ServerConfig(trusted_proxy_ips=("127.0.0.1",)),
     )
     direct = OPDSConfig(
-        artifact_root=opds_config.artifact_root,
+        library_root=opds_config.library_root,
+        coordination_root=opds_config.coordination_root,
         public_base_url="https://books.example",
         auth=auth,
         server=ServerConfig(
-            tls_certificate=opds_config.artifact_root / "server.crt",
-            tls_private_key=opds_config.artifact_root / "server.key",
+            tls_certificate=opds_config.library_root / "server.crt",
+            tls_private_key=opds_config.library_root / "server.key",
         ),
     )
 
@@ -163,7 +184,8 @@ def test_public_url_and_trusted_proxy_configuration_fail_closed(
     ):
         with pytest.raises(ValueError, match="public_base_url"):
             OPDSConfig(
-                artifact_root=opds_config.artifact_root,
+                library_root=opds_config.library_root,
+                coordination_root=opds_config.coordination_root,
                 public_base_url=invalid_url,
             )
 
@@ -177,7 +199,8 @@ async def test_protected_catalog_refuses_basic_credentials_over_http(
     opds_config: OPDSConfig,
 ) -> None:
     config = OPDSConfig(
-        artifact_root=opds_config.artifact_root,
+        library_root=opds_config.library_root,
+        coordination_root=opds_config.coordination_root,
         public_base_url="https://books.example",
         auth=BasicAuthConfig(username="reader", password=SecretStr("secret")),
         server=ServerConfig(trusted_proxy_ips=("127.0.0.1",)),
@@ -192,20 +215,51 @@ async def test_protected_catalog_refuses_basic_credentials_over_http(
     assert "www-authenticate" not in response.headers
 
 
-async def test_startup_rejects_a_symlink_artifact_root(
+async def test_startup_rejects_a_symlink_library_root(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
-    linked_root = opds_config.artifact_root / "linked-root"
-    real_root = opds_config.artifact_root / "real-root"
+    linked_root = opds_config.library_root / "linked-root"
+    real_root = opds_config.library_root / "real-root"
     real_root.mkdir()
     linked_root.symlink_to(real_root, target_is_directory=True)
-    config = opds_config.model_copy(update={"artifact_root": linked_root})
+    config = opds_config.model_copy(update={"library_root": linked_root})
     app = create_app(config, catalog_fixture.catalog)
 
     with pytest.raises(RuntimeError, match="real directory"):
         async with app_client(app):
             pass
+
+
+async def test_startup_rejects_untrusted_coordination_contract(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    tmp_path: Path,
+) -> None:
+    missing_lock_root = tmp_path / "missing-lock"
+    missing_lock_root.mkdir()
+    missing_lock = opds_config.model_copy(
+        update={"coordination_root": missing_lock_root}
+    )
+    linked_root = tmp_path / "linked-coordination"
+    linked_root.symlink_to(
+        opds_config.coordination_root,
+        target_is_directory=True,
+    )
+    linked_coordination = opds_config.model_copy(
+        update={"coordination_root": linked_root}
+    )
+    linked_lock_root = tmp_path / "linked-lock"
+    linked_lock_root.mkdir()
+    (linked_lock_root / "publication.lock").symlink_to(
+        opds_config.coordination_root / "publication.lock"
+    )
+    linked_lock = opds_config.model_copy(update={"coordination_root": linked_lock_root})
+
+    for config in (missing_lock, linked_coordination, linked_lock):
+        with pytest.raises(RuntimeError, match="Coordination root"):
+            async with app_client(create_app(config, catalog_fixture.catalog)):
+                pass
 
 
 async def test_production_startup_uses_read_only_open_database_once(
@@ -222,7 +276,8 @@ async def test_production_startup_uses_read_only_open_database_once(
     monkeypatch.setattr(app_module, "open_database", fake_open_database)
     app = create_app(
         OPDSConfig(
-            artifact_root=opds_config.artifact_root,
+            library_root=opds_config.library_root,
+            coordination_root=opds_config.coordination_root,
             public_base_url=opds_config.public_base_url,
             core=CoreConfig(),
         )

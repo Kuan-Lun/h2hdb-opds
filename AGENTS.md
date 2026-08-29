@@ -164,7 +164,7 @@ Range 與 conditional HTTP response。search 在 core 尚無 bounded index 時
 coordination fencing 與 catalog repository。只能使用 core 公開介面，不得
 import connector/repository internals，不得建立或 migrate schema。database
 access 必須強制 read-only，只能公開已 publication 的 catalog revision。
-production startup 使用 `open_database()` 執行精確 epoch-2 `READY` audit；
+production startup 使用 `open_database()` 執行精確 epoch-3 `READY` audit；
 caller 注入的 `CatalogReader` 視為已初始化 boundary，直接使用。任何 startup
 path 均不得呼叫 `migrate()`。
 
@@ -176,19 +176,31 @@ path 均不得呼叫 `migrate()`。
   authentication document；`acquisition.py` 負責 artifact responses。
 - feed 使用 `application/opds+json`；standalone publication 使用
   `application/opds-publication+json`。
-- acquisition ETag 是已驗證 artifact 的 strong SHA-256 validator。RFC
+- acquisition ETag 是 ingest activation 已驗證並封存的 strong SHA-256
+  validator。每次 request 不得重新 hash 或複製整個 CBZ。RFC
   precondition 必須按 `If-Match` 到 `If-Modified-Since` 的順序處理。
 - 只支援單一 byte range。invalid、multiple 或 unsatisfiable range 回 416
   並帶 `Content-Range`；未知 unit 忽略；`If-Range` mismatch 回完整 200；
   date comparison 必須精確。
-- acquisition path 必須留在 configured real artifact root，open 時不得
-  follow symlink。送出 strong validator 前必須驗證 size 與 SHA-256。
+- `library_root` 是唯一 public current tree；artifact 只能透過 core 的
+  `ArtifactStorageKey.segments` 在 configured real library root 內解析，open
+  時不得 follow symlink，且只接受符合 sealed size 的 regular file。
+- `coordination_root` 只包含 permanent `publication.lock` 與 optional
+  `ACTIVATING`。每個 catalog/feed/publication read 在 nonblocking shared
+  `flock` 下檢查 marker；acquisition 必須在同一 lock 內依序 pin current head、
+  取得 artifact、open FD、驗證 fstat size，再重查 current head。Lock contention
+  或任何 marker entry 都回 503；已開啟的 immutable inode 可在 release lock
+  後直接 Range stream。
+- OPDS 不得建立、修改或刪除 coordination state。正常 SIGTERM、Compose stop
+  或非正常 process termination 都只靠 FD close 釋放 shared lock；health route
+  在 activation 期間維持可用，避免把受控 maintenance 誤判成 process failure。
 - absolute link 只能來自 canonical public base URL，不能信任 request Host。
   Basic auth 只允許 effective HTTPS：local TLS 或明確 trusted
   TLS-terminating proxy。credential comparison 使用
   `secrets.compare_digest`。
-- listing/count 使用 core pinned `require_artifact` filter，確保每個
-  serialized publication 都有 acquisition link。
+- listing 使用 core pinned `list_artifact_publications` seek cursor，總數使用
+  immutable revision `artifact_count`，確保每個 serialized publication 都有
+  acquisition link；不得對 artifact feed 使用 `OFFSET` 或逐頁 `COUNT(*)`。
 - 所有 feed、publication、pagination 與 acquisition link 都攜帶 selected
   revision。省略 revision 時選 current head；明確 revision 只有等於 current
   head 才接受，其他回 404。不得將 stale revision 替換成 current data，或在
@@ -198,8 +210,9 @@ path 均不得呼叫 `migrate()`。
 
 - tests 使用 injected reader、temporary artifact 與 local ASGI transport，
   不得啟動 production server、連線 production database 或依賴外部網路。
-- authentication、trusted proxy、canonical URL、path containment、symlink、
-  digest、Range、conditional request 與 revision pinning 變更都必須新增
+- authentication、trusted proxy、canonical URL、storage-key containment、
+  symlink、activation marker/lock、atomic replacement、sealed size、direct
+  streaming、Range、conditional request 與 revision pinning 變更都必須新增
   regression coverage。
 - `scripts/check-full.sh` 執行完整 pytest、sdist/wheel build，以及從 installed
   wheel 執行 package/CLI smoke。

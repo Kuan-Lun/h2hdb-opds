@@ -7,6 +7,7 @@ __all__ = [
 ]
 
 import json
+import os
 import re
 from ipaddress import ip_network
 from pathlib import Path
@@ -122,7 +123,8 @@ def _read_only_core_config(config: CoreConfig | None = None) -> CoreConfig:
 
 
 class OPDSConfig(ConfigModel):
-    artifact_root: Path
+    library_root: Path
+    coordination_root: Path
     public_base_url: str
     core: CoreConfig = Field(default_factory=_read_only_core_config)
     auth: BasicAuthConfig = Field(default_factory=BasicAuthConfig)
@@ -131,15 +133,38 @@ class OPDSConfig(ConfigModel):
     default_page_size: int = Field(default=50, ge=1, le=128)
     maximum_page_size: int = Field(default=128, ge=1, le=128)
 
-    @field_validator("artifact_root")
+    @field_validator("library_root", "coordination_root")
     @classmethod
-    def validate_artifact_root(cls, value: Path) -> Path:
+    def validate_filesystem_root(cls, value: Path) -> Path:
         expanded = value.expanduser()
         if not expanded.is_absolute():
-            raise ValueError("artifact_root must be an absolute path")
+            raise ValueError("filesystem roots must be absolute paths")
         if expanded == Path(expanded.anchor):
-            raise ValueError("artifact_root must not be the filesystem root")
+            raise ValueError("filesystem roots must not be the filesystem root")
         return expanded
+
+    def model_post_init(self, __context: object) -> None:
+        library_root = Path(os.path.abspath(self.library_root))
+        coordination_root = Path(os.path.abspath(self.coordination_root))
+        if library_root == coordination_root:
+            raise ValueError("library_root and coordination_root must be distinct")
+        if (
+            library_root in coordination_root.parents
+            or coordination_root in library_root.parents
+        ):
+            raise ValueError("library_root and coordination_root must not overlap")
+        if self.default_page_size > self.maximum_page_size:
+            raise ValueError("default_page_size must not exceed maximum_page_size")
+        if self.auth.enabled:
+            if urlsplit(self.public_base_url).scheme != "https":
+                raise ValueError(
+                    "Basic authentication requires an HTTPS public_base_url"
+                )
+            if not self.server.serves_tls and not self.server.trusted_proxy_ips:
+                raise ValueError(
+                    "Basic authentication requires local TLS or an explicitly trusted "
+                    "TLS-terminating proxy"
+                )
 
     @field_validator("public_base_url")
     @classmethod
@@ -170,20 +195,6 @@ class OPDSConfig(ConfigModel):
     @classmethod
     def force_read_only(cls, value: CoreConfig) -> CoreConfig:
         return _read_only_core_config(value)
-
-    def model_post_init(self, __context: object) -> None:
-        if self.default_page_size > self.maximum_page_size:
-            raise ValueError("default_page_size must not exceed maximum_page_size")
-        if self.auth.enabled:
-            if urlsplit(self.public_base_url).scheme != "https":
-                raise ValueError(
-                    "Basic authentication requires an HTTPS public_base_url"
-                )
-            if not self.server.serves_tls and not self.server.trusted_proxy_ips:
-                raise ValueError(
-                    "Basic authentication requires local TLS or an explicitly trusted "
-                    "TLS-terminating proxy"
-                )
 
     @classmethod
     def from_file(cls, config_path: str | Path) -> Self:

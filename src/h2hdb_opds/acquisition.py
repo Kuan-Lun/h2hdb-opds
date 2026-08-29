@@ -1,28 +1,30 @@
-__all__ = ["serve_artifact", "validate_artifact_root"]
+__all__ = ["serve_artifact"]
 
-import hashlib
 import os
 import re
-import secrets
 import stat
-import tempfile
 import unicodedata
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import format_datetime, parsedate_to_datetime
 from pathlib import Path
-from typing import BinaryIO, cast
+from typing import BinaryIO, Protocol
 from urllib.parse import quote
 
 from fastapi import HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
-from h2hdb import CatalogArtifact
+from h2hdb import ArtifactStorageKey, CatalogArtifact
+
+from .library import open_directory_without_symlinks
 
 _BYTE_RANGE_PATTERN = re.compile(r"bytes=[ \t]*(\d*)-(\d*)", re.IGNORECASE)
 _CHUNK_SIZE = 64 * 1024
 _DEFAULT_DOWNLOAD_NAME = "download"
-_SPOOL_MEMORY_LIMIT = 8 * 1024 * 1024
+
+
+class HeadRevalidator(Protocol):
+    def __call__(self) -> None: ...
 
 
 class RangeNotSatisfiable(ValueError):
@@ -166,7 +168,7 @@ def _read_file(artifact_file: BinaryIO, byte_range: ByteRange) -> Iterator[bytes
         while remaining > 0:
             chunk = artifact_file.read(min(_CHUNK_SIZE, remaining))
             if not chunk:
-                break
+                raise OSError("Artifact ended before its sealed size")
             remaining -= len(chunk)
             yield chunk
     finally:
@@ -217,31 +219,8 @@ def _base_headers(artifact: CatalogArtifact) -> dict[str, str]:
     }
 
 
-def _open_directory_without_symlinks(path: Path) -> int:
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-    normalized = Path(os.path.abspath(path))
-    descriptor = os.open(normalized.anchor, flags)
-    try:
-        for component in normalized.parts[1:]:
-            next_descriptor = os.open(component, flags, dir_fd=descriptor)
-            os.close(descriptor)
-            descriptor = next_descriptor
-    except BaseException:
-        os.close(descriptor)
-        raise
-    return descriptor
-
-
-def validate_artifact_root(root: Path) -> None:
-    try:
-        descriptor = _open_directory_without_symlinks(root)
-    except OSError as error:
-        raise RuntimeError(f"Artifact root must be a real directory: {root}") from error
-    os.close(descriptor)
-
-
-def _relative_artifact_path(root: Path, location: Path) -> Path:
-    candidate = location if location.is_absolute() else root / location
+def _relative_storage_path(root: Path, storage_key: ArtifactStorageKey) -> Path:
+    candidate = root.joinpath(*storage_key.segments)
     normalized = Path(os.path.abspath(candidate))
     normalized_root = Path(os.path.abspath(root))
     try:
@@ -249,20 +228,20 @@ def _relative_artifact_path(root: Path, location: Path) -> Path:
     except ValueError as error:
         raise HTTPException(
             status_code=404,
-            detail="Artifact is outside the configured artifact root",
+            detail="Artifact is outside the configured library root",
         ) from error
     if not relative.parts:
         raise HTTPException(status_code=404, detail="Artifact is unavailable")
     return relative
 
 
-def _open_without_symlinks(root: Path, location: Path) -> BinaryIO:
-    relative = _relative_artifact_path(root, location)
+def _open_without_symlinks(root: Path, storage_key: ArtifactStorageKey) -> BinaryIO:
+    relative = _relative_storage_path(root, storage_key)
     directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
     file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
     descriptor = -1
     try:
-        descriptor = _open_directory_without_symlinks(root)
+        descriptor = open_directory_without_symlinks(root)
         for component in relative.parts[:-1]:
             next_descriptor = os.open(component, directory_flags, dir_fd=descriptor)
             os.close(descriptor)
@@ -276,41 +255,29 @@ def _open_without_symlinks(root: Path, location: Path) -> BinaryIO:
     finally:
         if descriptor >= 0:
             os.close(descriptor)
-    return os.fdopen(file_descriptor, "rb")
+    try:
+        return os.fdopen(file_descriptor, "rb")
+    except BaseException:
+        os.close(file_descriptor)
+        raise
 
 
-def _verified_snapshot(root: Path, artifact: CatalogArtifact) -> BinaryIO:
-    source = _open_without_symlinks(root, artifact.location)
-    snapshot = cast(
-        BinaryIO,
-        tempfile.SpooledTemporaryFile(max_size=_SPOOL_MEMORY_LIMIT),
-    )
-    digest = hashlib.sha256()
-    size = 0
+def _open_sealed_artifact(root: Path, artifact: CatalogArtifact) -> BinaryIO:
+    source = _open_without_symlinks(root, artifact.storage_key)
     try:
         source_stat = os.fstat(source.fileno())
         if not stat.S_ISREG(source_stat.st_mode):
             raise HTTPException(status_code=404, detail="Artifact is unavailable")
-        while chunk := source.read(_CHUNK_SIZE):
-            size += len(chunk)
-            digest.update(chunk)
-            snapshot.write(chunk)
     except BaseException:
-        snapshot.close()
-        raise
-    finally:
         source.close()
-
-    if size != artifact.size_bytes or not secrets.compare_digest(
-        digest.hexdigest().casefold(), artifact.sha256.casefold()
-    ):
-        snapshot.close()
+        raise
+    if source_stat.st_size != artifact.size_bytes:
+        source.close()
         raise HTTPException(
             status_code=409,
             detail="Artifact no longer matches its published catalog metadata",
         )
-    snapshot.seek(0)
-    return snapshot
+    return source
 
 
 def _range_unit(value: str) -> str | None:
@@ -324,9 +291,15 @@ def serve_artifact(
     request: Request,
     artifact: CatalogArtifact,
     *,
-    artifact_root: Path,
+    library_root: Path,
+    revalidate_head: HeadRevalidator,
 ) -> Response:
-    artifact_file = _verified_snapshot(artifact_root, artifact)
+    artifact_file = _open_sealed_artifact(library_root, artifact)
+    try:
+        revalidate_head()
+    except BaseException:
+        artifact_file.close()
+        raise
     headers = _base_headers(artifact)
     etag = headers["ETag"]
 

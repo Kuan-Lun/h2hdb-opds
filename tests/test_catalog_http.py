@@ -4,6 +4,7 @@ from typing import Any
 from unittest.mock import patch
 
 from h2hdb import (
+    CatalogArtifactCursor,
     CatalogContributor,
     CatalogRevision,
     CatalogSubject,
@@ -15,6 +16,7 @@ from h2hdb_opds.auth import (
     AUTHENTICATION_DOCUMENT_REL,
     AUTHENTICATION_MEDIA_TYPE,
 )
+from h2hdb_opds.cursor import encode_artifact_cursor
 from h2hdb_opds.serialization import (
     OPDS_FEED_MEDIA_TYPE,
     OPDS_PUBLICATION_MEDIA_TYPE,
@@ -29,7 +31,8 @@ async def test_authentication_document_is_public_and_basic_auth_is_enforced(
     opds_config: OPDSConfig,
 ) -> None:
     config = OPDSConfig(
-        artifact_root=opds_config.artifact_root,
+        library_root=opds_config.library_root,
+        coordination_root=opds_config.coordination_root,
         public_base_url="https://books.example",
         auth=BasicAuthConfig(
             username="reader",
@@ -96,9 +99,10 @@ async def test_publications_pagination_and_single_document(
 
     async with app_client(app) as client:
         first_page = await client.get("/opds/v2/publications")
-        second_page = await client.get(
-            "/opds/v2/publications?offset=2&limit=2&revision=7"
+        next_url = next(
+            link["href"] for link in first_page.json()["links"] if link["rel"] == "next"
         )
+        second_page = await client.get(next_url)
         publication = await client.get("/opds/v2/publications/publication-alpha")
         missing = await client.get("/opds/v2/publications/missing")
 
@@ -111,7 +115,6 @@ async def test_publications_pagination_and_single_document(
         "modified": "2026-08-05T12:00:00Z",
         "numberOfItems": 3,
         "itemsPerPage": 2,
-        "currentPage": 1,
     }
     assert len(first_document["publications"]) == 2
     assert "revision=7" in first_document["links"][0]["href"]
@@ -126,8 +129,9 @@ async def test_publications_pagination_and_single_document(
         "/opds/v2/acquisitions/artifact-alpha?revision=7"
     )
 
-    assert second_page.json()["metadata"]["currentPage"] == 2
     assert len(second_page.json()["publications"]) == 1
+    assert all(link["rel"] != "next" for link in second_page.json()["links"])
+    assert "cursor=" in next_url
     assert publication.status_code == 200
     assert publication.headers["content-type"] == OPDS_PUBLICATION_MEDIA_TYPE
     publication_metadata = publication.json()["metadata"]
@@ -196,6 +200,7 @@ async def test_old_revision_links_return_404_after_current_advances(
                 revision=8,
                 published_at=datetime(2026, 8, 6, 12, 0, tzinfo=UTC),
                 publication_count=1,
+                artifact_count=1,
             ),
             (catalog_fixture.publications[1],),
         )
@@ -233,7 +238,7 @@ async def test_list_race_after_current_resolution_returns_404_without_fallback(
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
     selected = catalog_fixture.catalog.revision
-    original_read = catalog_fixture.catalog.list_publications
+    original_read = catalog_fixture.catalog.list_artifact_publications
 
     def advance_then_read(*args: Any, **kwargs: Any) -> Any:
         catalog_fixture.catalog.add_revision(
@@ -241,6 +246,7 @@ async def test_list_race_after_current_resolution_returns_404_without_fallback(
                 revision=8,
                 published_at=datetime(2026, 8, 6, 12, 0, tzinfo=UTC),
                 publication_count=1,
+                artifact_count=1,
             ),
             (catalog_fixture.publications[1],),
         )
@@ -248,7 +254,7 @@ async def test_list_race_after_current_resolution_returns_404_without_fallback(
 
     with patch.object(
         catalog_fixture.catalog,
-        "list_publications",
+        "list_artifact_publications",
         side_effect=advance_then_read,
     ):
         async with app_client(app) as client:
@@ -274,6 +280,7 @@ async def test_detail_race_after_current_resolution_returns_404_without_fallback
                 revision=8,
                 published_at=datetime(2026, 8, 6, 12, 0, tzinfo=UTC),
                 publication_count=1,
+                artifact_count=1,
             ),
             (catalog_fixture.publications[1],),
         )
@@ -307,6 +314,7 @@ async def test_acquisition_race_after_current_resolution_returns_404_without_fal
                 revision=8,
                 published_at=datetime(2026, 8, 6, 12, 0, tzinfo=UTC),
                 publication_count=1,
+                artifact_count=1,
             ),
             (catalog_fixture.publications[1],),
         )
@@ -326,12 +334,15 @@ async def test_acquisition_race_after_current_resolution_returns_404_without_fal
     assert catalog_fixture.catalog.artifact_revisions == [selected]
 
 
-async def test_artifactless_publications_are_filtered_with_accurate_counts(
+async def test_artifact_disabled_revision_has_empty_feed_and_accurate_counts(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
-    artifactless = replace(catalog_fixture.publications[0], artifacts=())
-    catalog = FakeCatalog((artifactless, catalog_fixture.publications[1]))
+    artifactless = tuple(
+        replace(publication, artifacts=())
+        for publication in catalog_fixture.publications
+    )
+    catalog = FakeCatalog(artifactless)
     app = create_app(opds_config, catalog)
 
     async with app_client(app) as client:
@@ -339,13 +350,11 @@ async def test_artifactless_publications_are_filtered_with_accurate_counts(
         feed = await client.get("/opds/v2/publications")
         detail = await client.get("/opds/v2/publications/publication-alpha")
 
-    assert navigation.json()["metadata"]["numberOfItems"] == 1
-    assert feed.json()["metadata"]["numberOfItems"] == 1
-    assert [item["metadata"]["identifier"] for item in feed.json()["publications"]] == [
-        "publication-beta"
-    ]
+    assert navigation.json()["metadata"]["numberOfItems"] == 0
+    assert feed.json()["metadata"]["numberOfItems"] == 0
+    assert feed.json()["publications"] == []
     assert detail.status_code == 404
-    assert catalog.require_artifact_calls == [True, True]
+    assert len(catalog.artifact_list_calls) == 1
 
 
 async def test_search_is_explicitly_unavailable_and_http_bounds_fail_closed(
@@ -363,9 +372,13 @@ async def test_search_is_explicitly_unavailable_and_http_bounds_fail_closed(
             params={"query": "  cobalt\t adventure  ", "limit": 2},
         )
         blank = await client.get("/opds/v2/search", params={"query": " \t "})
-        misaligned = await client.get(
+        invalid_cursor = await client.get(
             "/opds/v2/publications",
-            params={"offset": 1, "limit": 2},
+            params={"cursor": "not-a-valid-cursor", "limit": 2},
+        )
+        removed_offset = await client.get(
+            "/opds/v2/publications",
+            params={"offset": 2, "limit": 2},
         )
         excessive_limit = await client.get(
             "/opds/v2/publications",
@@ -375,9 +388,9 @@ async def test_search_is_explicitly_unavailable_and_http_bounds_fail_closed(
             "/opds/v2/publications",
             params={"revision": 0},
         )
-        excessive_offset = await client.get(
+        oversized_cursor = await client.get(
             "/opds/v2/publications",
-            params={"offset": 1 << 63},
+            params={"cursor": "x" * 1025},
         )
 
     assert unavailable.status_code == 501
@@ -385,10 +398,39 @@ async def test_search_is_explicitly_unavailable_and_http_bounds_fail_closed(
         "detail": "Catalog search is unavailable until its bounded index is built"
     }
     assert blank.status_code == 422
-    assert misaligned.status_code == 422
+    assert invalid_cursor.status_code == 422
+    assert removed_offset.status_code == 422
+    assert removed_offset.json() == {
+        "detail": "offset pagination was removed; follow the cursor links"
+    }
     assert excessive_limit.status_code == 422
     assert zero_revision.status_code == 422
-    assert excessive_offset.status_code == 422
+    assert oversized_cursor.status_code == 422
+
+
+async def test_cursor_must_bind_the_exact_revision_order_row(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+) -> None:
+    cursor = encode_artifact_cursor(
+        CatalogArtifactCursor(
+            revision=7,
+            position=0,
+            publication_id="publication-does-not-match",
+        )
+    )
+    app = create_app(opds_config, catalog_fixture.catalog)
+
+    async with app_client(app) as client:
+        response = await client.get(
+            "/opds/v2/publications",
+            params={"revision": 7, "cursor": cursor},
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "cursor does not identify a valid page boundary"
+    }
 
 
 async def test_publication_omits_blank_metadata_and_uses_standard_link_size(

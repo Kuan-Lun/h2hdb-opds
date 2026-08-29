@@ -7,13 +7,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from h2hdb import (
+    CatalogCursorError,
     CatalogReader,
     CatalogRevision,
     CatalogRevisionNotFoundError,
     open_database,
 )
 
-from .acquisition import serve_artifact, validate_artifact_root
+from .acquisition import serve_artifact
 from .auth import (
     AUTHENTICATION_MEDIA_TYPE,
     AuthenticationRequired,
@@ -23,6 +24,8 @@ from .auth import (
     authentication_required_response,
 )
 from .config import OPDSConfig
+from .cursor import decode_artifact_cursor
+from .library import LibraryReadCoordinator, LibraryUnavailable
 from .serialization import (
     OPDS_FEED_MEDIA_TYPE,
     OPDS_PUBLICATION_MEDIA_TYPE,
@@ -40,6 +43,10 @@ def create_app(
 ) -> FastAPI:
     settings = config
     reader = catalog
+    library_reads = LibraryReadCoordinator(
+        library_root=settings.library_root,
+        coordination_root=settings.coordination_root,
+    )
 
     def current_reader() -> CatalogReader:
         if reader is None:
@@ -51,7 +58,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         nonlocal reader
-        validate_artifact_root(settings.artifact_root)
+        library_reads.validate()
         if reader is None:
             reader = open_database(settings.core)
         application.state.catalog_reader = reader
@@ -79,6 +86,17 @@ def create_app(
             {"detail": "Basic authentication requires HTTPS"},
             status_code=426,
             headers={"Upgrade": "TLS/1.2, HTTP/1.1"},
+        )
+
+    @application.exception_handler(LibraryUnavailable)
+    async def handle_library_unavailable(
+        _request: Request,
+        error: LibraryUnavailable,
+    ) -> JSONResponse:
+        return JSONResponse(
+            {"detail": str(error)},
+            status_code=503,
+            headers={"Cache-Control": "no-store", "Retry-After": "1"},
         )
 
     @application.get("/health", name="health")
@@ -132,16 +150,10 @@ def create_app(
         request: Request,
         revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> JSONResponse:
-        selected = resolved_revision(revision)
-        with pinned_revision_read(selected):
-            page = current_reader().list_publications(
-                offset=0,
-                limit=1,
-                revision=selected,
-                require_artifact=True,
-            )
+        with library_reads.read():
+            selected = resolved_revision(revision)
         return JSONResponse(
-            navigation_document(request, settings, selected, page.total),
+            navigation_document(request, settings, selected, selected.artifact_count),
             media_type=OPDS_FEED_MEDIA_TYPE,
         )
 
@@ -154,13 +166,6 @@ def create_app(
             )
         return result
 
-    def validate_offset(offset: int, limit: int) -> None:
-        if offset % limit:
-            raise HTTPException(
-                status_code=422,
-                detail="offset must be a multiple of the selected limit",
-            )
-
     @protected.get(
         "/publications",
         name="list_publications",
@@ -168,25 +173,51 @@ def create_app(
     )
     def list_publications(
         request: Request,
-        offset: Annotated[int, Query(ge=0, le=_INT63_MAX)] = 0,
+        cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
         limit: Annotated[int | None, Query(ge=1, le=128)] = None,
         revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
+        offset: Annotated[str | None, Query(include_in_schema=False)] = None,
     ) -> JSONResponse:
-        selected = resolved_revision(revision)
-        selected_limit = resolved_limit(limit)
-        validate_offset(offset, selected_limit)
-        with pinned_revision_read(selected):
-            page = current_reader().list_publications(
-                offset=offset,
-                limit=selected_limit,
-                revision=selected,
-                require_artifact=True,
+        if offset is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="offset pagination was removed; follow the cursor links",
             )
+        with library_reads.read():
+            selected = resolved_revision(revision)
+            selected_limit = resolved_limit(limit)
+            try:
+                decoded_cursor = (
+                    None if cursor is None else decode_artifact_cursor(cursor)
+                )
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=422,
+                    detail="cursor is invalid",
+                ) from error
+            if (
+                decoded_cursor is not None
+                and decoded_cursor.revision != selected.revision
+            ):
+                raise revision_not_found(decoded_cursor.revision)
+            try:
+                with pinned_revision_read(selected):
+                    page = current_reader().list_artifact_publications(
+                        after=decoded_cursor,
+                        limit=selected_limit,
+                        revision=selected,
+                    )
+            except CatalogCursorError as error:
+                raise HTTPException(
+                    status_code=422,
+                    detail="cursor does not identify a valid page boundary",
+                ) from error
         return JSONResponse(
             publications_document(
                 request,
                 settings,
                 page,
+                cursor=decoded_cursor,
                 endpoint="list_publications",
             ),
             media_type=OPDS_FEED_MEDIA_TYPE,
@@ -199,14 +230,13 @@ def create_app(
     )
     def search_publications(
         query: Annotated[str, Query(min_length=1, max_length=200)],
-        offset: Annotated[int, Query(ge=0, le=_INT63_MAX)] = 0,
         limit: Annotated[int | None, Query(ge=1, le=128)] = None,
         revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> JSONResponse:
         normalized_query = " ".join(query.split())
         if not normalized_query:
             raise HTTPException(status_code=422, detail="query must not be blank")
-        del offset, limit, revision
+        del limit, revision
         raise HTTPException(
             status_code=501,
             detail="Catalog search is unavailable until its bounded index is built",
@@ -222,12 +252,13 @@ def create_app(
         publication_id: str,
         revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> JSONResponse:
-        selected = resolved_revision(revision)
-        with pinned_revision_read(selected):
-            publication = current_reader().get_publication(
-                publication_id,
-                revision=selected,
-            )
+        with library_reads.read():
+            selected = resolved_revision(revision)
+            with pinned_revision_read(selected):
+                publication = current_reader().get_publication(
+                    publication_id,
+                    revision=selected,
+                )
         if publication is None or not publication.artifacts:
             raise HTTPException(status_code=404, detail="Publication not found")
         return JSONResponse(
@@ -240,19 +271,27 @@ def create_app(
         artifact_id: str,
         revision: int | None,
     ) -> Response:
-        selected = resolved_revision(revision)
-        with pinned_revision_read(selected):
-            artifact = current_reader().get_artifact(
-                artifact_id,
-                revision=selected,
-            )
-        if artifact is None:
-            raise HTTPException(status_code=404, detail="Artifact not found")
-        return serve_artifact(
-            request,
-            artifact,
-            artifact_root=settings.artifact_root,
-        )
+        with library_reads.read():
+            selected = resolved_revision(revision)
+            with pinned_revision_read(selected):
+                artifact = current_reader().get_artifact(
+                    artifact_id,
+                    revision=selected,
+                )
+                if artifact is None:
+                    raise HTTPException(status_code=404, detail="Artifact not found")
+
+                def revalidate_head() -> None:
+                    confirmed = current_reader().get_catalog_revision()
+                    if confirmed.revision != selected.revision:
+                        raise revision_not_found(selected.revision)
+
+                return serve_artifact(
+                    request,
+                    artifact,
+                    library_root=settings.library_root,
+                    revalidate_head=revalidate_head,
+                )
 
     @protected.get(
         "/acquisitions/{artifact_id}",

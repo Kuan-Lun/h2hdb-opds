@@ -11,7 +11,7 @@ from h2hdb_opds import OPDSConfig, create_app
 from .http_client import app_client
 
 
-async def test_sqlite_epoch_is_opened_read_only_without_legacy_writer_api(
+async def test_sqlite_epoch_three_is_opened_read_only_without_legacy_writer_api(
     tmp_path: Path,
 ) -> None:
     database_path = tmp_path / "catalog.sqlite3"
@@ -22,12 +22,19 @@ async def test_sqlite_epoch_is_opened_read_only_without_legacy_writer_api(
         )
     )
     report = VNextDatabaseAdminFacade(writable_config).initialize()
-    assert report.epoch == 2
+    assert report.epoch == 3
     assert report.state == "READY"
+
+    library_root = tmp_path / "current"
+    library_root.mkdir()
+    coordination_root = tmp_path / "coordination"
+    coordination_root.mkdir()
+    (coordination_root / "publication.lock").touch()
 
     app = create_app(
         OPDSConfig(
-            artifact_root=tmp_path,
+            library_root=library_root,
+            coordination_root=coordination_root,
             public_base_url="http://catalog.example",
             core=writable_config,
         )
