@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-08-30T16:36:28+00:00",
-  "manifest_sha256": "d514746e67afe4b154bf3869c8c52dd52cf74a90bf0af4fce81529971e5c1421",
+  "checked_at": "2026-08-30T17:18:24+00:00",
+  "manifest_sha256": "6f56cce9aa6d4b9e7dbcc6bb9e1cfc7d99ab3de32746c1ed2f0c81886a659241",
   "node": [
     {
       "declared": ">=0.23.2",
@@ -9,7 +9,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.7.2",
+  "project_version": "0.8.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -30,10 +30,10 @@
       "url": "https://pypi.org/project/fastapi/"
     },
     {
-      "declared": "h2hdb>=0.26.0,<0.27",
+      "declared": "h2hdb>=0.27.0,<0.28",
       "group": "runtime",
       "latest": "0.26.0",
-      "latest_satisfies": true,
+      "latest_satisfies": false,
       "name": "h2hdb",
       "python_3_14": true,
       "url": "https://pypi.org/project/h2hdb/"
@@ -130,7 +130,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all direct build, runtime, development, and Node dependencies for h2hdb-opds 0.7.2. The additive OPDS 1.2 adapter uses only Python standard-library XML serialization, adds no dependency, and leaves existing dependency API contracts and bounds unchanged. Current registry candidates remain inside the declared ranges and support Python 3.14; the unchanged h2hdb 0.26 compatibility cohort is exercised by the full SQLite vertical slice and package gates.",
+    "note": "Reviewed every direct build, runtime, development, and Node dependency for h2hdb-opds 0.8.0. The breaking OPDS 1.2 navigation surface requires the coordinated h2hdb 0.27 CatalogRecentOrder, CatalogRecentArtifactWindow, downloaded_at, and fixed top-128 reader contract; that exact sibling source contract passed the full OPDS test, type, build, and installed-wheel gates. h2hdb-opds must not be published before h2hdb 0.27 is available. All other registry candidates remain compatible with the declared Python 3.14 ranges, and this change adds no new third-party dependency.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
