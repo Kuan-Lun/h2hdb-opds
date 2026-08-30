@@ -1,5 +1,6 @@
 __all__ = ["create_app"]
 
+import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from typing import Annotated
@@ -35,6 +36,7 @@ from .serialization import (
 )
 
 _INT63_MAX = (1 << 63) - 1
+_LOGGER = logging.getLogger("uvicorn.error")
 
 
 def create_app(
@@ -58,6 +60,10 @@ def create_app(
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         nonlocal reader
+        _LOGGER.info(
+            "h2hdb-opds startup: public_base_url=%s",
+            settings.public_base_url,
+        )
         library_reads.validate()
         if reader is None:
             reader = open_database(settings.core)

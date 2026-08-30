@@ -231,6 +231,37 @@ async def test_startup_rejects_a_symlink_library_root(
             pass
 
 
+async def test_startup_logs_the_effective_public_url_before_preflight(
+    caplog: pytest.LogCaptureFixture,
+    opds_config: OPDSConfig,
+) -> None:
+    auth_username = "distinct-reader"
+    auth_password = "distinct-auth-secret"
+    database_password = "distinct-database-secret"
+    config = OPDSConfig(
+        library_root=opds_config.library_root / "missing-current",
+        coordination_root=opds_config.coordination_root,
+        public_base_url="https://books.example/catalog/",
+        core=CoreConfig.model_validate({"database": {"password": database_password}}),
+        auth=BasicAuthConfig(
+            username=auth_username,
+            password=SecretStr(auth_password),
+        ),
+        server=ServerConfig(trusted_proxy_ips=("127.0.0.1",)),
+    )
+
+    with caplog.at_level("INFO", logger="uvicorn.error"):
+        with pytest.raises(RuntimeError, match="Library root"):
+            async with app_client(create_app(config)):
+                pass
+
+    assert caplog.messages == [
+        "h2hdb-opds startup: public_base_url=https://books.example/catalog"
+    ]
+    for secret in (auth_username, auth_password, database_password):
+        assert secret not in caplog.text
+
+
 async def test_startup_rejects_untrusted_coordination_contract(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,

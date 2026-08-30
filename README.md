@@ -129,6 +129,10 @@ which matches the supported Linux container and macOS deployments.
 
 `public_base_url` is the canonical externally visible URL, including any reverse
 proxy path prefix. Generated links never trust the incoming `Host` header.
+At process startup, the service logs the normalized effective
+`public_base_url` before filesystem and database preflight. This diagnostic is
+safe to use in container logs; authentication and database secrets are never
+included.
 
 Basic authentication is accepted only over HTTPS. Choose one explicit TLS
 boundary:
