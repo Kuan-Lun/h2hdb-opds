@@ -8,7 +8,9 @@ from .config import load_config
 
 
 def _argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Serve an H2HDB catalog over OPDS 2.0")
+    parser = argparse.ArgumentParser(
+        description="Serve an H2HDB catalog over OPDS 1.2 and 2.0"
+    )
     parser.add_argument("--config", required=True, help="Path to the OPDS JSON config")
     return parser
 

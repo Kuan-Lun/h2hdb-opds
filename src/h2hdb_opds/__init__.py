@@ -1,4 +1,4 @@
-"""OPDS 2.0 HTTP service for H2HDB catalogs."""
+"""OPDS 1.2 and 2.0 HTTP service for H2HDB catalogs."""
 
 from .app import create_app
 from .config import (

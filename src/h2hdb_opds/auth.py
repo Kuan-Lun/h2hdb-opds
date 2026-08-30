@@ -6,6 +6,7 @@ __all__ = [
     "InsecureAuthenticationTransport",
     "authentication_document",
     "authentication_required_response",
+    "basic_authentication_required_response",
 ]
 
 import base64
@@ -13,7 +14,7 @@ import binascii
 import secrets
 
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from .config import BasicAuthConfig, OPDSConfig
 from .urls import external_url
@@ -79,6 +80,17 @@ def authentication_required_response(
                 f'<{authentication_url}>; rel="{AUTHENTICATION_DOCUMENT_REL}"; '
                 f'type="{AUTHENTICATION_MEDIA_TYPE}"'
             ),
+        },
+    )
+
+
+def basic_authentication_required_response(config: OPDSConfig) -> Response:
+    """Return the protocol-neutral HTTP Basic challenge used by OPDS 1.2."""
+    return Response(
+        status_code=401,
+        headers={
+            "WWW-Authenticate": _challenge(config.auth),
+            "Cache-Control": "no-store",
         },
     )
 

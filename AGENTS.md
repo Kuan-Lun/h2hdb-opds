@@ -150,15 +150,16 @@
 
 ## Repository-specific policy
 
-`h2hdb-opds` 是 H2HDB catalog 的 OPDS 2.0 HTTP service，發佈名稱為
+`h2hdb-opds` 是 H2HDB catalog 的 OPDS 1.2 與 2.0 HTTP service，發佈名稱為
 `h2hdb-opds`，公開 import package 為 `h2hdb_opds`。
 
 ### Ownership boundary
 
 本 repository 擁有 FastAPI/ASGI integration、OPDS models/serialization、
 navigation、有界 publication pagination、authentication、acquisition、
-Range 與 conditional HTTP response。search 在 core 尚無 bounded index 時
-必須維持明確 501 stub，不得廣告不可用能力。
+Range 與 conditional HTTP response。OPDS 2 search 在 core 尚無 bounded
+index 時必須維持明確 501 stub；OPDS 1.2 不得廣告 search、artwork、OPDS-PSE、
+facet 或 standalone entry 等尚無 bounded authority 的能力。
 
 `h2hdb` core 獨占 connector、transaction、schema/migration、durable queue、
 coordination fencing 與 catalog repository。只能使用 core 公開介面，不得
@@ -171,11 +172,17 @@ path 均不得呼叫 `migrate()`。
 ### HTTP and filesystem invariants
 
 - `config.py` 擁有 frozen OPDS/server/authentication/core config models；
-  `app.py` 負責 lifespan 與 routes；`serialization.py` 負責 feed、
-  publication、navigation 與 pagination；`auth.py` 負責 Basic auth 與
-  authentication document；`acquisition.py` 負責 artifact responses。
-- feed 使用 `application/opds+json`；standalone publication 使用
-  `application/opds-publication+json`。
+  `app.py` 負責 lifespan、exception mapping 與 composition；
+  `catalog_service.py` 負責兩版共用的 bounded revision-pinned reads；
+  `opds12.py`/`atom.py` 與 `opds2.py`/`serialization.py` 分別負責協定 routes
+  與 serialization；`auth.py` 負責 Basic auth 與 OPDS 2 authentication
+  document；`acquisition.py` 負責兩版共用的 artifact responses。
+- OPDS 1.2 catalog 是單一 paginated Atom acquisition feed，使用
+  `application/atom+xml;profile=opds-catalog;kind=acquisition`；每個 feed
+  必須有穩定 id、title、updated、author 及 revision-bound pagination links，
+  每個 entry 必須有穩定 id、title、updated、text content 與至少一個
+  acquisition link。OPDS 2 feed 使用 `application/opds+json`；standalone
+  publication 使用 `application/opds-publication+json`。
 - acquisition ETag 是 ingest activation 已驗證並封存的 strong SHA-256
   validator。每次 request 不得重新 hash 或複製整個 CBZ。RFC
   precondition 必須按 `If-Match` 到 `If-Modified-Since` 的順序處理。
@@ -202,9 +209,10 @@ path 均不得呼叫 `migrate()`。
   Basic auth 只允許 effective HTTPS：local TLS 或明確 trusted
   TLS-terminating proxy。credential comparison 使用
   `secrets.compare_digest`。
-- listing 使用 core pinned `list_artifact_publications` seek cursor，總數使用
-  immutable revision `artifact_count`，確保每個 serialized publication 都有
-  acquisition link；不得對 artifact feed 使用 `OFFSET` 或逐頁 `COUNT(*)`。
+- 兩版 listing 使用 core pinned `list_artifact_publications` seek cursor，總數
+  使用 immutable revision `artifact_count`，確保每個 serialized publication
+  都有 acquisition link；不得對 artifact feed 使用 `OFFSET`、逐頁
+  `COUNT(*)` 或 protocol-specific durable pagination state。
 - 所有 feed、publication、pagination 與 acquisition link 都攜帶 selected
   revision。省略 revision 時選 current head；明確 revision 只有等於 current
   head 才接受，其他回 404。不得將 stale revision 替換成 current data，或在
@@ -214,6 +222,9 @@ path 均不得呼叫 `migrate()`。
 
 - tests 使用 injected reader、temporary artifact 與 local ASGI transport，
   不得啟動 production server、連線 production database 或依賴外部網路。
+- OPDS 1.2 XML tests 使用 namespace-aware semantic assertions，不使用易碎的
+  whole-document snapshot；v1.2 routes/tests 必須保持可整體移除，且不得複製
+  共用 CBZ、Range、coordination 或 catalog state。
 - authentication、trusted proxy、canonical URL、storage-key containment、
   symlink、activation marker/lock、atomic replacement、sealed size、direct
   streaming、Range、conditional request 與 revision pinning 變更都必須新增

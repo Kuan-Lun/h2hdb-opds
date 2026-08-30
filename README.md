@@ -1,10 +1,11 @@
 # h2hdb-opds
 
-`h2hdb-opds` exposes an H2HDB catalog as an OPDS 2.0 HTTP service. Its boundary
-includes FastAPI/ASGI integration, OPDS models and serialization, navigation,
-bounded publication pagination, authentication, and acquisition responses with
-Range and conditional HTTP support. The search route is reserved but not
-advertised until core supplies its bounded index.
+`h2hdb-opds` exposes one H2HDB catalog through parallel OPDS 1.2 Atom and OPDS
+2.0 JSON representations. Its boundary includes FastAPI/ASGI integration,
+protocol-specific serialization, bounded publication pagination,
+authentication, and acquisition responses with Range and conditional HTTP
+support. The OPDS 2.0 search route is reserved but not advertised until core
+supplies its bounded index.
 
 Database connectors, schema migrations, durable queues, coordination fencing,
 and catalog persistence remain owned by the `h2hdb` core package. This service
@@ -181,6 +182,8 @@ service:
 ## HTTP API
 
 - `GET /health`
+- `GET|HEAD /opds/v1.2/catalog?cursor=TOKEN&limit=50&revision=N`
+- `GET|HEAD /opds/v1.2/acquisitions/{artifact_id}?revision=N`
 - `GET /opds/v2`
 - `GET /opds/v2/publications?cursor=TOKEN&limit=50&revision=N`
 - `GET /opds/v2/search?query=term` (reserved; returns 501 until the bounded
@@ -189,11 +192,22 @@ service:
 - `GET|HEAD /opds/v2/acquisitions/{artifact_id}?revision=N`
 - `GET /opds/v2/authentication`
 
-OPDS feeds use `application/opds+json`; standalone publications use
-`application/opds-publication+json`. The authentication document is always
-public. When Basic authentication is configured, failed protected requests
-return that document as `application/opds-authentication+json` together with
-`WWW-Authenticate` and an authentication `Link` header.
+Use the exact OPDS 1.2 catalog URL when configuring a client such as Panels:
+`https://books.example.net/opds/v1.2/catalog`. This endpoint is a directly
+paginated acquisition feed, so a single-library deployment does not add an
+otherwise empty navigation level. It uses
+`application/atom+xml;profile=opds-catalog;kind=acquisition` and contains
+standard Atom metadata plus revision-bound CBZ acquisition links. Search,
+artwork, OPDS-PSE page streaming, facets, and standalone Atom entry endpoints
+are deliberately not advertised.
+
+OPDS 2.0 feeds use `application/opds+json`; standalone publications use
+`application/opds-publication+json`. Its authentication document is always
+public. Both protocol versions share the same HTTPS-only Basic authenticator.
+When authentication fails, protected requests return the OPDS 2 authentication
+document as `application/opds-authentication+json` together with
+`WWW-Authenticate` and an authentication `Link` header; OPDS 1.2 clients use
+the standard Basic challenge and do not need to understand that JSON body.
 
 Acquisitions use artifact metadata from the selected published revision and
 the same single CBZ tree read by Komga. They
@@ -208,8 +222,8 @@ HTTP semantics.
 The download filename comes from the neutral artifact name in the published
 catalog, never from its storage path. Responses include safe `filename` and
 UTF-8 `filename*` parameters in `Content-Disposition`; storage names such as
-`hash-v1/13/8/h2h-1234567.cbz` remain an implementation detail rather than an
-OPDS 2.0 requirement.
+`hash-v1/13/8/h2h-1234567.cbz` remain an implementation detail rather than a
+protocol requirement.
 
 Every generated feed, publication, pagination, and acquisition link carries its
 selected catalog revision. An omitted revision selects the current head; an
@@ -219,10 +233,10 @@ revisions. After a newer head is published, links pinned to the previous
 revision return 404 instead of exposing history or silently switching to current
 data.
 
-OPDS publication pages use core's revision-bound artifact-only seek cursor and
-immutable `artifact_count`. This keeps feed totals, navigation links, and
-OPDS's required acquisition links consistent without a per-page `COUNT(*)` or
-deep `OFFSET` scan. Page sizes are capped at 128. Cursors are opaque,
+Both OPDS representations use core's revision-bound artifact-only seek cursor
+and immutable `artifact_count`. This keeps feed totals and required acquisition
+links consistent without a per-page `COUNT(*)` or deep `OFFSET` scan. Page
+sizes are capped at 128. Cursors are opaque,
 canonically encoded, and bound to the exact revision, order position, and
 publication identity; tampering returns 422 and links for a superseded current
 revision return 404. Cursor feeds expose `self`, `first`, and forward `next`
@@ -231,10 +245,11 @@ The cursor is stateless HTTP input, not mutable server progress: interruption
 does not leave a cursor table to repair, and a client can retry the same pinned
 link idempotently.
 Search is deliberately not advertised while the core's bounded search index is
-an explicit readiness blocker; the reserved route returns 501 instead of
-performing an unbounded scan. Blank optional metadata is omitted, language tags
-are normalized and validated as BCP 47, and acquisition Link Objects expose the
-standard `size` field.
+an explicit readiness blocker; the reserved OPDS 2 route returns 501 instead of
+performing an unbounded scan. Blank optional metadata is omitted and language
+tags are normalized and validated as BCP 47. OPDS 2 acquisition Link Objects
+expose the standard `size` field; OPDS 1.2 Atom links expose the equivalent
+`length` attribute.
 
 ## Development
 
