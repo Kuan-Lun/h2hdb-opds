@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-08-29T16:28:53+00:00",
+  "checked_at": "2026-08-30T15:47:29+00:00",
   "manifest_sha256": "d514746e67afe4b154bf3869c8c52dd52cf74a90bf0af4fce81529971e5c1421",
   "node": [
     {
@@ -9,7 +9,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.7.0",
+  "project_version": "0.7.1",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -32,8 +32,8 @@
     {
       "declared": "h2hdb>=0.26.0,<0.27",
       "group": "runtime",
-      "latest": "0.25.0",
-      "latest_satisfies": false,
+      "latest": "0.26.0",
+      "latest_satisfies": true,
       "name": "h2hdb",
       "python_3_14": true,
       "url": "https://pypi.org/project/h2hdb/"
@@ -130,7 +130,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all direct build, runtime, development, and Node dependencies for 0.7.0: h2hdb 0.26 is the locally tested unpublished cohort; Pydantic 2.13.5 is a validator/GC patch release compatible with current models; build 1.6 removals do not affect the CLI-only build workflow; packaging 26.3 adds APIs and metadata support unused here; Ruff 0.16.5 changes only preview rules and fixes outside the explicit configured rule set.",
+    "note": "Reviewed all direct build, runtime, development, and Node dependencies for h2hdb-opds 0.7.1. This compatible observability change logs only the validated public_base_url and changes no dependency API or bounds. The current environment already exercises the latest in-range Pydantic 2.13.5, build 1.6.0, packaging 26.3, and Ruff 0.16.5; the prior release-note review remains applicable. All registry candidates support Python 3.14, and the h2hdb 0.26 cohort remains unchanged.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
