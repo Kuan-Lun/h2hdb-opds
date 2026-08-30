@@ -1,31 +1,30 @@
 # h2hdb-opds
 
-`h2hdb-opds` exposes one H2HDB catalog through parallel OPDS 1.2 Atom and OPDS
-2.0 JSON representations. Its boundary includes FastAPI/ASGI integration,
-protocol-specific serialization, bounded recent windows and publication pagination,
-authentication, and acquisition responses with Range and conditional HTTP
-support. The OPDS 2.0 search route is reserved but not advertised until core
-supplies its bounded index.
+`h2hdb-opds` lets an OPDS reader browse and download the current H2HDB
+publication catalog. It serves the same three top-level collections in both
+protocol versions:
 
-Database connectors, schema migrations, durable queues, coordination fencing,
-and catalog persistence remain owned by the `h2hdb` core package. This service
-uses only the core catalog-reading public interface and opens database access
-in read-only mode. Production startup delegates the exact epoch-3 `READY` audit
-to core's `open_database()` and never initializes or migrates schema. A
-caller-injected `CatalogReader` is treated as already initialized.
+- All Publications
+- Recently Uploaded
+- Recently Downloaded
 
-This release line targets `h2hdb>=0.27.0,<0.28` and only reads the greenfield
-epoch-3 schema.
+Use one of these URLs in your reader:
 
-`h2hdb-opds` does not own or synchronize a second database. It reads the
-core-owned H2HDB database: use the same SQLite file in read-only mode, or use a
-dedicated read-only MariaDB account against the same database. The latter adds
-database-server enforcement on top of the read-only mode forced by this
-service.
+- OPDS 1.2: `https://books.example.net/opds/v1.2/catalog`
+- OPDS 2.0: `https://books.example.net/opds/v2`
 
-## Configuration and startup
+OPDS 1.2 is the best choice for readers that support OPDS-PSE comic page
+streaming. OPDS 2.0 provides JSON feeds, a standalone publication document and
+the OPDS Authentication document. Both versions expose search, facets, cover
+art, thumbnails, downloads and the same current catalog revision.
 
-Create a JSON configuration such as:
+## Quick start
+
+This service requires Python 3.14, an H2HDB 0.28 database whose epoch 3/schema
+version 2 is already `READY`, the read-only ingest `current` tree, and its
+sibling coordination directory. It never creates or migrates the database.
+
+Create `opds.json`:
 
 ```json
 {
@@ -42,8 +41,7 @@ Create a JSON configuration such as:
   "server": {
     "host": "127.0.0.1",
     "port": 8000,
-    "tls_certificate": "/run/secrets/opds.crt",
-    "tls_private_key": "/run/secrets/opds.key"
+    "trusted_proxy_ips": ["127.0.0.1"]
   },
   "title": "My H2HDB Catalog",
   "default_page_size": 50,
@@ -56,54 +54,253 @@ Create a JSON configuration such as:
 }
 ```
 
-JSON string values that consist exactly of `${ENV_NAME}` are resolved
-recursively before validation. This applies equally to nested core credentials
-and OPDS authentication, for example
-`"password": "${H2HDB_OPDS_DB_PASSWORD}"` under `core.database`. Inline
-interpolation is not performed. Missing or invalid variable names stop startup
-without exposing the environment value, and strict unknown-field rejection is
-unchanged.
+Then rebuild the local environment and start the server:
 
-`core.database.access_mode` is always forced to `read-only`, even if a supplied
-configuration requests write access. Omit both `auth.username` and
-`auth.password` to disable Basic authentication.
+```bash
+./scripts/rebuild-env.sh
+.venv/bin/h2hdb-opds --config opds.json
+```
 
-The former `artifact_root` setting has been removed and is rejected rather than
-treated as an alias. There is no dual-root or content-addressed acquisition
-compatibility path: configure both roots from the single-library deployment.
+This release is a deliberate clean break. It accepts only cursor format v2 and
+the core discovery query-hash v2 contract; old saved cursor URLs return 422 and
+must be replaced by reopening the catalog. It also requires a database built
+from the current H2HDB epoch-3 manifest, including discovery, facet and
+presentation authorities. H2HDB has no compatibility migration or dual-read
+path for an older/foreign manifest: create a new blank database and republish
+the catalog. Storage likewise accepts only `managed-filesystem-v2` descriptors
+for the `acquisitions/hash-v2` and `artwork/hash-v2` trees. Legacy
+`current/hash-v1` is neither read nor migrated; ingest must build a fresh
+`current` tree. No legacy identifier, query-name, cursor or storage shim is
+retained.
 
-`library_root` is the only public current tree from which acquisitions can be
-served. It must be an absolute, real directory rather than a symlink. The
-service resolves only core-validated, stable `ArtifactStorageKey` segments;
-symlinks at any level and non-regular files are rejected. Ingest is the only
-writer and atomically replaces a completely written, fsynced CBZ before making
-its catalog revision current. OPDS verifies the opened file's sealed size and
-streams that descriptor directly. It does not persist a second CBZ, copy the
-payload to a request spool, or rehash the whole file for HEAD, 304, Range, or
-ordinary GET responses. The catalog SHA-256 remains the strong ETag because it
-was verified at ingest activation.
+A JSON string that consists exactly of `${ENV_NAME}` is replaced recursively
+from the environment before validation. This works for OPDS and nested database
+credentials. Missing variables stop startup without logging their values.
 
-The read-only mounts and ingest-only writer rule are therefore part of the
-validator's trust boundary. A size mismatch fails 409 immediately; same-size
-out-of-band mutation or storage bit rot is not rediscovered by every HTTP
-request and must be detected by an explicit integrity audit. Transactional
-recovery handles orderly stop, process loss, and power interruption; damaged
-storage still requires a verified source or backup for reconstruction.
+To disable Basic authentication, omit both `auth.username` and `auth.password`.
+When authentication is enabled, `public_base_url` must use HTTPS and TLS must be
+terminated either by this process or by an address listed in
+`server.trusted_proxy_ips`. Untrusted forwarded headers are ignored.
 
-`coordination_root` is a separate read-only mount of the canonical library
-parent's `.h2hdb-coordination` sibling. It contains only the permanent regular
-file `publication.lock` and an optional `ACTIVATING` marker. The two configured
-roots must be distinct and non-overlapping. Every
-catalog response takes a nonblocking shared `flock`; contention or any marker
-entry returns 503 with `Retry-After`. Acquisition holds that lock while it pins
-the current revision, opens and validates the CBZ descriptor, and revalidates
-the head. Streaming can then continue from the opened immutable inode while a
-later activation atomically replaces the pathname. A marker left by power loss
-or writer termination intentionally keeps OPDS fail-closed until ingest
-reconciles the activation.
+## What is implemented
 
-For Docker Compose, mount only the public `current` and sibling coordination
-subtrees read-only:
+“Specification” below describes what the protocol can represent. “This server”
+states what `h2hdb-opds` actually sends; a blank in one protocol must not be
+read as a missing implementation in the other.
+
+| Capability | OPDS 1.2 specification | This server 1.2 | OPDS 2.0 specification | This server 2.0 |
+| --- | --- | --- | --- | --- |
+| Catalog navigation | Atom navigation feeds | Same three collections | Navigation collections | Same three collections |
+| All Publications listing | Acquisition feed | Yes, cursor-paged; not marked crawlable/complete | Publications collection | Yes, cursor-paged |
+| Search | OpenSearch description and search link | Yes | Templated search link | Yes |
+| Facets | OPDS facet links | Language, tag and contributor; fully page-followable | Facet collections | Language, tag and contributor; fully page-followable |
+| Standalone publication | Atom entry document | Yes | Publication document | Yes |
+| Cover and thumbnail | Image relations | Yes | `images` links | Yes |
+| Page count | Extension metadata | PSE `count` | `numberOfPages` | Emitted when greater than zero |
+| Comic page streaming | OPDS-PSE extension | Yes | No normative OPDS 2 PSE form | Not emitted |
+| Groups | No equivalent groups collection | Not applicable | `groups` collection | Not emitted; facets provide author/language/tag classification |
+| Acquisition | OPDS acquisition relations | CBZ GET/HEAD/Range | Acquisition Link Objects | CBZ GET/HEAD/Range |
+| Shelf/subscriptions discovery | Optional `opds:shelf` and `opds:subscriptions` relations | Not advertised or stored | No general shelf collection | Not stored |
+| Reading progress | No persistent reading-progress model | Not stored | No core reading-progress feature | Not stored |
+| Buy, borrow, subscribe and preview workflows | Acquisition relations, prices and indirect acquisitions | Not implemented | Acquisition relations, prices and indirect acquisitions | Not implemented |
+
+The server does not claim every optional OPDS extension. In particular, it does
+not advertise OPDS 1.2 shelf/subscriptions resources and does not keep per-user
+shelves, subscription state, last-read positions or reading progress. The
+`subscribe` acquisition relation in either OPDS version describes how a
+publication may be acquired through a subscription; it is distinct from the
+OPDS 1.2 `opds:subscriptions` discovery relation.
+
+Other deliberately unimplemented breadth includes an OPDS 1.2 complete,
+crawlable feed; popular, featured and recommendation relations or collections;
+field-specific advanced OpenSearch beyond `searchTerms`; advanced OPDS 2
+metadata search; multi-format acquisition alternatives; the full breadth of
+Readium publication metadata; and OPDS 2 `groups`. Most of these are optional
+discovery or vocabulary features. Their absence is not a conformance failure
+for the documents and links this server does emit.
+
+Only one direct CBZ download per publication is implemented. Every published
+artifact must have the exact `application/vnd.comicbook+zip` media type at the
+OPDS boundary;
+unsupported adapter output makes the catalog temporarily unavailable instead
+of being advertised as a supported acquisition. The server does not serialize
+buy/borrow/subscribe/preview acquisition workflows, prices or nested indirect
+acquisitions.
+
+Every schema-governed Atom feed/entry and OPDS 2 feed/publication shape emitted
+by the service is represented in an offline conformance corpus. The unmodified
+official OPDS 1.2 RELAX NG conversion is compiled separately. Runtime Atom
+documents use a strict derived grammar whose only change corrects the pinned
+Atom RNC's CR/TAB typo. A shared validator first checks an original OPDS-PSE
+link's exact relation, JPEG type, count and single literal `{pageNumber}` token,
+then replaces that token only in a validation copy; the grammar itself is not
+weakened. OPDS 2 uses the official schemas and the complete Readium Web
+Publication Manifest reference closure. OpenSearch and Authentication
+documents have dedicated semantic/shape tests because these vendored OPDS
+schema sets do not define schemas for them. Raw sources, generated outputs,
+the runtime generator and all hashes are in `verification/opds/sources.toml`.
+
+## Browse, search and filter
+
+The All Publications collection is ordered by the catalog's stable publication
+order. Pagination means a large result is split into bounded responses instead
+of being loaded all at once. This server uses seek pagination, not numbered
+pages or database offsets. Follow the feed's `next` link exactly: its opaque
+cursor records the last boundary and is bound to the complete query and selected
+revision. A malformed cursor returns 422; a cursor for a superseded revision
+returns 404.
+
+Recently Uploaded and Recently Downloaded are fixed complete top-128 windows.
+They are not paginated and reject `cursor`, `limit` and `offset`. “Downloaded”
+means the immutable source download timestamp published by H2HDB, not the time
+an OPDS user fetched the CBZ.
+
+Free-text search and facets are available at:
+
+```text
+GET /opds/v1.2/search?q=alice
+GET /opds/v2/search?query=alice
+```
+
+OPDS 2 follows the specification's required search parameter name `query`.
+The former `q` spelling is rejected with 422 and is not an alias. OPDS 1.2
+continues to use `q`; its OpenSearch description maps `{searchTerms}` to it.
+The search endpoint requires a nonblank searchable query. Missing, whitespace-
+only, punctuation-only and over-complex queries return 422 instead of becoming
+an unfiltered All Publications request.
+
+Search covers only the display title, source title, contributor names and source
+tag values. It deliberately does not index the summary, publication identifier
+or artifact filename. H2HDB applies its pinned Unicode normalization/case-fold
+tokenizer and requires every distinct query lexeme to occur (AND semantics).
+Queries contain at most 16 distinct searchable lexemes and 1024 canonical-NFD
+UTF-8 bytes. There is no fuzzy matching, stemming, phrase ranking or relevance
+order; results remain in the catalog's stable publication order.
+
+Optional filters are:
+
+- `language=VALUE`
+- `tag=VALUE&tag_namespace=NAMESPACE`
+- `contributor=NAME&role=ROLE`
+- `limit=1..128`
+
+`tag` and `tag_namespace` must occur together because a source tag is only
+unique within its exact namespace. `contributor` and `role` must also occur
+together. Registered roles are `artist`, `author`, `cosplayer`, `group`,
+`illustrator` and `uploader`. Filter bytes are not trimmed, Unicode-normalized
+or whitespace-collapsed; following the generated facet link is the safest way
+to preserve an exact value.
+
+`/publications` also accepts these exact filters without a free-text query, so a
+reader can browse and follow facets from All Publications. Each discovery feed
+shows a bounded facet window. If a catalog has more values,
+the facet contains a followable “More”/`next` link to
+`/facets/language`, `/facets/subject` or `/facets/contributor`. No 129th tag or
+author is silently discarded and the server never builds an unbounded facet
+response.
+
+## Publications, covers and comic pages
+
+A standalone publication endpoint returns one publication rather than a list:
+
+```text
+GET /opds/v1.2/publications/{publication_id}?revision=N
+GET /opds/v2/publications/{publication_id}?revision=N
+```
+
+It is useful when a reader wants current metadata and acquisition links for one
+book without parsing a feed. The only accepted identifier form is the canonical
+core identity `urn:h2h:gallery:<gid>`, where `gid` is an ASCII decimal integer
+from 1 through 2^63-1 with no leading zero. Zero, Unicode digits, arbitrary URIs
+and malformed internal identifiers fail closed in both protocol versions. The
+decimal suffix must also equal the publication's authoritative H2HDB `gid`; a
+canonical-looking but mismatched identity makes the catalog temporarily
+unavailable instead of leaking inconsistent links.
+
+Publication metadata includes that identifier, display title, textual summary,
+publication/update timestamps, valid BCP 47 language, contributors and source
+subjects where available. Acquisition links include exact media type, filename
+and byte length. Page-bearing publications additionally include page count,
+cover and thumbnail links; unavailable optional facts are omitted rather than
+invented.
+
+Ingest prepares presentation descriptors. H2HDB stores the immutable,
+revision-scoped presentation authority in normalized database relations: page
+count plus each page/cover/thumbnail storage key, logical byte extent, media
+type, digest and dimensions. The image and CBZ bytes themselves stay in ingest's
+read-only `current` storage tree. Keeping queryable identity/integrity facts in
+the database and large immutable bytes in storage avoids database blobs while
+still letting OPDS fail closed. OPDS does not parse a ZIP or resize an image
+during a request. For a publication with pages:
+
+- page `0` is the cover;
+- this server bounds page count to 0..4096 at its OPDS presentation boundary;
+- the thumbnail is a separately prepared 320-pixel image;
+- OPDS 1.2 advertises standard cover/thumbnail relations and one OPDS-PSE stream
+  with a literal `{pageNumber}` token;
+- OPDS 2 advertises cover then thumbnail in `images`, plus
+  `metadata.numberOfPages`;
+- a zero-page publication omits images and `numberOfPages`.
+
+Direct media routes are version-neutral:
+
+```text
+GET|HEAD /media/publications/{publication_id}/pages/{page_number}?revision=N
+GET|HEAD /media/publications/{publication_id}/thumbnail?revision=N
+```
+
+Page numbers are zero-based. Page responses support one byte range whose
+coordinates are relative to the logical JPEG page, even when that page is an
+extent inside a CBZ. A missing page is 404. OPDS-PSE is intentionally only
+advertised by OPDS 1.2; no non-standard OPDS 2 PSE claim is made. The server
+does not emit PSE `lastRead` or `maxWidth`, and it does not split double pages.
+
+## Artifact-only catalog and empty results
+
+OPDS is an acquisition catalog. A publication is visible only when the current
+revision has a sealed downloadable artifact. Metadata that exists in H2HDB but
+has no artifact is not offered as a book the reader could download.
+
+H2HDB revisions use an all-or-none artifact contract. An intentionally empty
+catalog occurs when artifact publication is disabled: `artifact_count` is zero
+even though metadata publications may exist, so there is nothing downloadable
+to expose. Any partial state between zero and the publication count is corrupt,
+and every catalog, search, detail, media and acquisition route returns a
+retryable 503 instead of exposing a mixed revision. An
+empty Atom feed has no entries. An empty OPDS 2 feed omits the schema-invalid
+`"publications": []` member and includes a navigation fallback. A valid search
+that matches nothing is also a normal empty result, not a database error.
+
+## Downloads and HTTP behavior
+
+Download routes are shared by both representations:
+
+```text
+GET|HEAD /opds/v1.2/acquisitions/{artifact_id}?revision=N
+GET|HEAD /opds/v2/acquisitions/{artifact_id}?revision=N
+```
+
+Anonymous catalogs advertise the precise OPDS open-access relation. Catalogs
+that require credentials advertise the generic acquisition relation because a
+download is not anonymously open.
+
+Acquisitions expose a strong SHA-256 ETag, `Last-Modified`,
+`Accept-Ranges: bytes`, GET, HEAD, one closed/open/suffix byte range and the
+standard conditional request headers. Invalid, multiple or unsatisfiable ranges
+return 416 with `Content-Range: bytes */size`. The filename comes from catalog
+metadata, never from a storage path.
+
+All generated links carry `revision=N`. Omitting it selects the current head.
+Supplying a revision only works while it is still the exact current head; the
+server returns 404 after activation instead of silently switching an old link
+to new data.
+
+## Filesystem and container mounts
+
+`library_root` must mount ingest's entire public `current` tree read-only. OPDS
+needs both `current/acquisitions` for CBZ/page extents and `current/artwork` for
+prepared thumbnails. `coordination_root` is a separate read-only mount of the
+sibling `.h2hdb-coordination` directory:
 
 ```yaml
 volumes:
@@ -111,154 +308,75 @@ volumes:
   - /volume1/h2hdb/comics/.h2hdb-coordination:/srv/h2hdb/coordination:ro
 ```
 
-Do not mount the `comics` parent into OPDS. In particular, do not expose
-ingest's private `.h2hdb-state` staging, journal, quarantine, or lock
-directories. The OPDS container UID/GID must be able to read the CBZ files and
-`publication.lock`. Komga can mount the same host `comics/current` directory at
-its configured `_oneshots` path; this does not create another filesystem copy.
+Komga should mount only the acquisition subtree, not the whole current tree,
+so it does not scan thumbnails as publications:
 
-Synology's Compose stop action is a supported maintenance path. A graceful
-SIGTERM lets active responses finish; when the process exits, the operating
-system closes every CBZ and lock descriptor. A forced termination also releases
-reader locks automatically. OPDS never creates durable coordination state, so
-it cannot leave an `ACTIVATING` marker. If ingest was terminated during its
-exclusive activation instead, its durable marker remains and the next ingest
-startup must reconcile it before readers resume.
-
-The secure descriptor-relative open policy relies on POSIX filesystem semantics,
-which matches the supported Linux container and macOS deployments.
-
-`public_base_url` is the canonical externally visible URL, including any reverse
-proxy path prefix. Generated links never trust the incoming `Host` header.
-At process startup, the service logs the normalized effective
-`public_base_url` before filesystem and database preflight. This diagnostic is
-safe to use in container logs; authentication and database secrets are never
-included.
-
-Basic authentication is accepted only over HTTPS. Choose one explicit TLS
-boundary:
-
-- configure `server.tls_certificate` and `server.tls_private_key` together to
-  terminate TLS in this process; or
-- terminate TLS at a reverse proxy and list only that proxy's addresses or CIDR
-  networks in `server.trusted_proxy_ips`.
-
-For example, a loopback reverse proxy configuration uses:
-
-```json
-{
-  "library_root": "/srv/h2hdb/library",
-  "coordination_root": "/srv/h2hdb/coordination",
-  "public_base_url": "https://books.example.net",
-  "auth": {
-    "username": "reader",
-    "password": "${H2HDB_OPDS_AUTH_PASSWORD}",
-    "realm": "My Catalog"
-  },
-  "server": {
-    "host": "127.0.0.1",
-    "port": 8000,
-    "trusted_proxy_ips": ["127.0.0.1"]
-  }
-}
+```yaml
+volumes:
+  - /volume1/h2hdb/comics/current/acquisitions:/books/_oneshots:ro
 ```
 
-The proxy must set the forwarded scheme to `https`. Untrusted forwarded headers
-are ignored, trusting every proxy address (`"*"`) is rejected, and protected
-requests that still arrive with an insecure effective scheme return 426 without
-issuing a Basic challenge. The public authentication document remains available
-without credentials.
+Do not expose the parent directory or ingest's private staging, journal,
+quarantine and lock directories. OPDS accepts only the exact
+`managed-filesystem-v2` storage-key codec, rejects traversal and symlinks,
+opens a regular file descriptor and checks its sealed object size and requested
+extent before serving bytes.
 
-The database must already expose the current epoch-3 `READY` schema; catalog
-routes return no feed until at least one revision has been published. Initialize
-a truly empty database first with core-owned `migrate` tooling and writer
-credentials (normally through the ingest deployment), then start this read-only
-service:
+The strong hash and immutable storage facts were verified when ingest activated
+the revision. OPDS intentionally does not hash an entire CBZ on every HEAD,
+304, Range or GET. The shared publication lock and current-head check are the
+runtime immutability boundary; out-of-band same-size mutation must be found by
+an explicit storage integrity audit.
 
-```bash
-.venv/bin/h2hdb-opds --config opds.json
-```
+Every catalog read takes a nonblocking shared lock. An active or interrupted
+activation returns 503 with `Retry-After` until ingest reconciles it. OPDS never
+creates coordination state. POSIX descriptor and `flock` behavior is required,
+matching supported Linux containers and macOS deployments.
 
-## HTTP API
+## Route reference
 
 - `GET /health`
-- `GET|HEAD /opds/v1.2/catalog?revision=N`
-- `GET|HEAD /opds/v1.2/recent/uploaded?revision=N`
-- `GET|HEAD /opds/v1.2/recent/downloaded?revision=N`
-- `GET|HEAD /opds/v1.2/acquisitions/{artifact_id}?revision=N`
+- `GET|HEAD /opds/v1.2/catalog`
+- `GET|HEAD /opds/v1.2/publications`
+- `GET|HEAD /opds/v1.2/search`
+- `GET|HEAD /opds/v1.2/opensearch.xml`
+- `GET|HEAD /opds/v1.2/facets/{language|subject|contributor}`
+- `GET|HEAD /opds/v1.2/recent/{uploaded|downloaded}`
+- `GET|HEAD /opds/v1.2/publications/{publication_id}`
+- `GET|HEAD /opds/v1.2/acquisitions/{artifact_id}`
 - `GET /opds/v2`
-- `GET /opds/v2/publications?cursor=TOKEN&limit=50&revision=N`
-- `GET /opds/v2/search?query=term` (reserved; returns 501 until the bounded
-  core search index is available)
-- `GET /opds/v2/publications/{publication_id}?revision=N`
-- `GET|HEAD /opds/v2/acquisitions/{artifact_id}?revision=N`
+- `GET /opds/v2/publications`
+- `GET /opds/v2/search`
+- `GET /opds/v2/facets/{language|subject|contributor}`
+- `GET /opds/v2/recent/{uploaded|downloaded}`
+- `GET /opds/v2/publications/{publication_id}`
+- `GET|HEAD /opds/v2/acquisitions/{artifact_id}`
 - `GET /opds/v2/authentication`
+- `GET|HEAD /media/publications/{publication_id}/pages/{page_number}`
+- `GET|HEAD /media/publications/{publication_id}/thumbnail`
 
-Use the exact OPDS 1.2 catalog URL when configuring a client such as Panels:
-`https://books.example.net/opds/v1.2/catalog`. This endpoint is a navigation
-feed with exactly two entries: `Recently Uploaded` and `Recently Downloaded`.
-Each entry opens a single acquisition feed containing at most 128
-artifact-bearing publications in the corresponding core-authoritative order.
-`Recently Downloaded` uses the published source gallery's immutable H2HDB
-download timestamp; it is not mutable per-user OPDS access history.
-These bounded feeds have no pagination or complete-catalog crawling link; the
-OPDS 1.2 surface intentionally has no `All Publications` path. Their publication
-entries contain standard Atom metadata plus revision-bound CBZ acquisition
-links. Search, artwork, OPDS-PSE page streaming, facets, and standalone Atom
-entry endpoints are deliberately not advertised.
+## Troubleshooting
 
-OPDS 2.0 feeds use `application/opds+json`; standalone publications use
-`application/opds-publication+json`. Its authentication document is always
-public. Both protocol versions share the same HTTPS-only Basic authenticator.
-When authentication fails, protected requests return the OPDS 2 authentication
-document as `application/opds-authentication+json` together with
-`WWW-Authenticate` and an authentication `Link` header; OPDS 1.2 clients use
-the standard Basic challenge and do not need to understand that JSON body.
-
-Acquisitions use artifact metadata from the selected published revision and
-the same single CBZ tree read by Komga. They
-expose a strong SHA-256 ETag, `Last-Modified`, `Accept-Ranges: bytes`, GET and HEAD,
-single closed/open/suffix byte ranges, `If-Match`, `If-Unmodified-Since`,
-`If-None-Match`, `If-Modified-Since`, and `If-Range` with RFC conditional request
-ordering. An `If-Range` HTTP date must exactly match `Last-Modified`.
-Invalid, unsatisfiable, or multiple ranges return 416 with
-`Content-Range: bytes */size`; unknown range units are ignored as required by
-HTTP semantics.
-
-The download filename comes from the neutral artifact name in the published
-catalog, never from its storage path. Responses include safe `filename` and
-UTF-8 `filename*` parameters in `Content-Disposition`; storage names such as
-`hash-v1/13/8/h2h-1234567.cbz` remain an implementation detail rather than a
-protocol requirement.
-
-Every generated feed, publication, navigation, pagination, and acquisition link
-carries its selected catalog revision. An omitted revision selects the current
-head; an explicit revision is accepted only when it equals that head. The resolved
-`CatalogRevision` is passed into every core read so one response cannot mix
-revisions. After a newer head is published, links pinned to the previous
-revision return 404 instead of exposing history or silently switching to current
-data.
-
-OPDS 1.2 recent feeds use core's revision-pinned, artifact-only uploaded and
-downloaded windows. Both windows are hard-capped at 128 and returned as complete
-single pages with `self`, `start`, and `up` links; they do not accept pagination
-input or advertise `first`, `next`, or `crawlable`. OPDS 2 continues to use the
-core artifact-only seek cursor and immutable `artifact_count`, with page sizes
-capped at 128. Its cursors are opaque, canonically encoded, and bound to the
-exact revision, order position, and publication identity; tampering returns 422
-and links for a superseded current revision return 404. Cursor state remains
-HTTP input rather than mutable server progress, so interruption leaves no cursor
-table to repair.
-Search is deliberately not advertised while the core's bounded search index is
-an explicit readiness blocker; the reserved OPDS 2 route returns 501 instead of
-performing an unbounded scan. Blank optional metadata is omitted and language
-tags are normalized and validated as BCP 47. OPDS 2 acquisition Link Objects
-expose the standard `size` field; OPDS 1.2 Atom links expose the equivalent
-`length` attribute.
+- 404 on a previously copied link: its revision is no longer current; reopen
+  the catalog root.
+- 422 on search: use OPDS 2 `query`, provide tag and namespace together, provide
+  contributor and role together, and follow opaque cursor links unchanged.
+- 503 with `Retry-After`: ingest holds the activation lock or left an
+  `ACTIVATING` marker that it must reconcile.
+- 416 on media: only a single satisfiable byte range is supported.
+- Catalog opens but has no books: the current revision has no published
+  artifacts; metadata-only revisions intentionally produce an empty catalog.
+- Basic auth never challenges over HTTP: configure an HTTPS public URL and a
+  trusted TLS terminator or local certificate/key pair.
 
 ## Development
 
-Rebuild the repository-local environment and run its canonical gates:
+The service uses only public `h2hdb` catalog facades and forces database access
+to read-only. It owns FastAPI integration, protocol serialization, cursor
+encoding, filesystem/media adapters, authentication and HTTP responses; core
+owns schema, transactions, revisions and catalog authorities.
+
+Run the canonical local gates:
 
 ```bash
 ./scripts/rebuild-env.sh
@@ -266,9 +384,14 @@ Rebuild the repository-local environment and run its canonical gates:
 ./scripts/check-full.sh
 ```
 
-The rebuild script uses `uv` only to create `.venv` and install through its pip
-interface; it never reads `uv.lock` or assumes an adjacent repository checkout.
+The full gate verifies immutable schema hashes; compiles both the unmodified and
+strict-runtime OPDS 1.2 grammars plus the OPDS 2 closure with no network access;
+runs positive schema-governed catalog corpora, PSE semantic negatives and
+dedicated OpenSearch/Authentication shape tests; executes all tests; builds
+sdist/wheel artifacts; and smoke-tests the installed wheel. `uv.lock` and
+`package-lock.json` are not rebuild inputs and must not be committed.
 
 ## License
 
-GNU General Public License v3.0. See [LICENSE](LICENSE).
+GNU General Public License v3.0. See [LICENSE](LICENSE). Vendored schema notices
+and upstream terms are recorded under `verification/opds`.

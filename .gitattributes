@@ -1,0 +1,2 @@
+# Immutable upstream schema snapshots retain their exact source bytes.
+verification/opds/schemas/** -text whitespace=-trailing-space

@@ -6,7 +6,7 @@ import pytest
 
 from h2hdb_opds import OPDSConfig, create_app
 
-from .fakes import CatalogFixture
+from .fakes import ALPHA_ARTIFACT_ID, CatalogFixture
 from .http_client import app_client
 
 
@@ -22,8 +22,8 @@ async def test_activation_marker_fail_closes_every_catalog_reader(
         health = await client.get("/health")
         navigation = await client.get("/opds/v2")
         feed = await client.get("/opds/v2/publications")
-        publication = await client.get("/opds/v2/publications/publication-alpha")
-        acquisition = await client.get("/opds/v2/acquisitions/artifact-alpha")
+        publication = await client.get("/opds/v2/publications/urn:h2h:gallery:1001")
+        acquisition = await client.get(f"/opds/v2/acquisitions/{ALPHA_ARTIFACT_ID}")
 
     assert health.status_code == 200
     for response in (navigation, feed, publication, acquisition):

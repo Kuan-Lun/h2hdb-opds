@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
-from h2hdb import CatalogReader, open_database
+from h2hdb import CatalogReader, CatalogSearchQueryTooComplexError, open_database
 
 from .auth import (
     AuthenticationRequired,
@@ -16,16 +16,18 @@ from .auth import (
     basic_authentication_required_response,
 )
 from .catalog_service import (
-    ArtifactCursorBoundaryInvalid,
-    ArtifactCursorInvalid,
     ArtifactUnavailable,
     CatalogService,
+    CursorBoundaryInvalid,
+    CursorInvalid,
+    MediaUnavailable,
     PageLimitExceeded,
     PublicationUnavailable,
     RevisionUnavailable,
 )
 from .config import OPDSConfig
 from .library import LibraryReadCoordinator, LibraryUnavailable
+from .media import create_media_router
 from .opds2 import create_opds2_router
 from .opds12 import create_opds12_router
 
@@ -118,17 +120,17 @@ def create_app(
             status_code=404,
         )
 
-    @application.exception_handler(ArtifactCursorInvalid)
-    async def handle_artifact_cursor_invalid(
+    @application.exception_handler(CursorInvalid)
+    async def handle_cursor_invalid(
         _request: Request,
-        _error: ArtifactCursorInvalid,
+        _error: CursorInvalid,
     ) -> JSONResponse:
         return JSONResponse({"detail": "cursor is invalid"}, status_code=422)
 
-    @application.exception_handler(ArtifactCursorBoundaryInvalid)
-    async def handle_artifact_cursor_boundary_invalid(
+    @application.exception_handler(CursorBoundaryInvalid)
+    async def handle_cursor_boundary_invalid(
         _request: Request,
-        _error: ArtifactCursorBoundaryInvalid,
+        _error: CursorBoundaryInvalid,
     ) -> JSONResponse:
         return JSONResponse(
             {"detail": "cursor does not identify a valid page boundary"},
@@ -145,6 +147,13 @@ def create_app(
             status_code=422,
         )
 
+    @application.exception_handler(CatalogSearchQueryTooComplexError)
+    async def handle_search_query_too_complex(
+        _request: Request,
+        error: CatalogSearchQueryTooComplexError,
+    ) -> JSONResponse:
+        return JSONResponse({"detail": str(error)}, status_code=422)
+
     @application.exception_handler(PublicationUnavailable)
     async def handle_publication_unavailable(
         _request: Request,
@@ -159,6 +168,13 @@ def create_app(
     ) -> JSONResponse:
         return JSONResponse({"detail": "Artifact not found"}, status_code=404)
 
+    @application.exception_handler(MediaUnavailable)
+    async def handle_media_unavailable(
+        _request: Request,
+        _error: MediaUnavailable,
+    ) -> JSONResponse:
+        return JSONResponse({"detail": "Publication media not found"}, status_code=404)
+
     @application.get("/health", name="health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -168,5 +184,8 @@ def create_app(
     )
     application.include_router(
         create_opds12_router(settings, authenticator, catalog_service)
+    )
+    application.include_router(
+        create_media_router(settings, authenticator, catalog_service)
     )
     return application

@@ -1,0 +1,99 @@
+schema = "h2hdb-opds-schema-snapshots.v1"
+
+[[sources]]
+name = "OPDS specification schemas"
+upstream = "https://github.com/opds-community/specs"
+commit = "8fda670fc72f110abcf68ad5d26e99ecfeeabf03"
+paths = [
+  "schema/1.2/opds.rnc",
+  "schema/acquisition-object.schema.json",
+  "schema/feed-metadata.schema.json",
+  "schema/feed.schema.json",
+  "schema/properties.schema.json",
+  "schema/publication.schema.json",
+]
+license_notice = "The pinned upstream tree declares no separate schema license; files are retained byte-for-byte with upstream headers. See verification/opds/NOTICE."
+
+[[sources]]
+name = "RFC 4287 Atom RELAX NG grammar"
+upstream = "https://www.rfc-editor.org/rfc/rfc4287.txt"
+mirror = "https://www.asahi-net.or.jp/~eb2m-mrt/atomextensions/atom.rnc"
+section = "Appendix B"
+retrieved = "2026-08-31"
+license_notice = "RFC legal terms remain authoritative; see verification/opds/NOTICE."
+
+[[sources]]
+name = "Readium Web Publication Manifest schemas"
+upstream = "https://github.com/readium/webpub-manifest"
+commit = "eb6f1338209111cc0ca4cedffd6c7d35ae064db1"
+paths = ["LICENSE", "schema/"]
+license_notice = "BSD-3-Clause; the upstream LICENSE is vendored beside the schemas."
+
+[[generators]]
+name = "Trang"
+coordinate = "com.thaiopensource:trang:20091111"
+url = "https://repo1.maven.org/maven2/com/thaiopensource/trang/20091111/trang-20091111.jar"
+sha256 = "fd1aef874d6a80913bb416704b2af62cdec727c1545cff378b32301657c085ec"
+inputs = [
+  "verification/opds/schemas/opds-1.2/atom.rnc",
+  "verification/opds/schemas/opds-1.2/opds.rnc",
+]
+outputs = [
+  "verification/opds/schemas/opds-1.2/atom.rng",
+  "verification/opds/schemas/opds-1.2/opds-upstream.rng",
+]
+commands = [
+  "java -jar trang-20091111.jar opds.rnc opds-upstream.rng",
+]
+note = "opds-upstream.rng is a direct conversion of the immutable official RNC and is compiled independently. Generated RNG closure is committed so offline gates require neither Java nor network access; the main grammar includes the adjacent generated atom.rng."
+
+[[generators]]
+name = "Strict OPDS 1.2 runtime grammar derivation"
+inputs = [
+  "verification/opds/schemas/opds-1.2/opds-upstream.rng",
+  "verification/opds/generation/generate-runtime-rng.py",
+]
+outputs = ["verification/opds/schemas/opds-1.2/opds.rng"]
+commands = [
+  ".venv/bin/python verification/opds/generation/generate-runtime-rng.py",
+]
+note = "The runtime grammar changes exactly one atomUri pattern: the pinned non-normative Atom RNC spells CR and TAB as literal r and t, contrary to its own comment and RFC 4287. The deterministic generator corrects those two escapes and makes no OPDS-PSE schema exception. Validation accepts PSE only by semantically checking an original document and replacing its one exact {pageNumber} token in a validation-only copy before applying this strict grammar."
+
+[generation_files]
+"verification/opds/generation/generate-runtime-rng.py" = "dac99fd8e3731948eb9ae8642f0c84d36c033792639fcd0895e652830343909a"
+
+[files]
+"verification/opds/schemas/opds-1.2/atom.rnc" = "dc6c16571935991424cd6b8e2268432b66c362a07ec8ab3af00aa7c80bcaf692"
+"verification/opds/schemas/opds-1.2/atom.rng" = "e66cad58dc7945efae3768de73eb437be8b2d21f41bc307a972552d654aad524"
+"verification/opds/schemas/opds-1.2/opds.rnc" = "cad97b25a0fb3f79c0ae16279c0fcb899c3d8c05535f9f34289bfdb661b2168c"
+"verification/opds/schemas/opds-1.2/opds-upstream.rng" = "2795e4a85614fa3b26e29889f6bbf39e7aa9bc26533d6bd9c0faaa65f68db192"
+"verification/opds/schemas/opds-1.2/opds.rng" = "b635f617f539172267559667992d342c9ee37ab60acf2a598c461cd6026adcd0"
+"verification/opds/schemas/opds-2.0/acquisition-object.schema.json" = "82b0d83eea6ac9ecb20ce40f202ed4cb53b53e33abedaec8384e8f8002d0374a"
+"verification/opds/schemas/opds-2.0/feed-metadata.schema.json" = "71b79e22783a7be3faf1631fab5aeef5c24f3aecd17cdf73b31bb24e6271e494"
+"verification/opds/schemas/opds-2.0/feed.schema.json" = "58c63e6c476a1c463832b96008ae94dba6e9823c735b9cf34a50fdd12e876c1c"
+"verification/opds/schemas/opds-2.0/properties.schema.json" = "e65f63b1c0048d8d267b690398656d072dc13116536145b6a988c8c1bd1603ea"
+"verification/opds/schemas/opds-2.0/publication.schema.json" = "6afdb55e9bc39ac8b6d70e72dc3a4aac6419b13bc2d6ecea57f4d5ad1b1c115b"
+"verification/opds/schemas/readium-webpub/LICENSE" = "074f0fc35d4747ebe6b91c4803747784f35b6b321119e92ebf9c8a3c7befcdab"
+"verification/opds/schemas/readium-webpub/schema/a11y.schema.json" = "e06834cc80be2239c4bcab95098a43f894da42beefe73b71690e18d013dbae6a"
+"verification/opds/schemas/readium-webpub/schema/altIdentifier.schema.json" = "45f7d0146551740a2bd381cbc63c39038d0081a05fcf2dbcb7234aff7c41f8a1"
+"verification/opds/schemas/readium-webpub/schema/article.schema.json" = "8bc6a929f796d8277fbec6aeacaa1da286a7f8c5fddb32cb2b2c741f1973d5ab"
+"verification/opds/schemas/readium-webpub/schema/chapter.schema.json" = "9b182ab7cf67dc29fa3306d84a0472090f799d92a899ebe93a4a442204556f54"
+"verification/opds/schemas/readium-webpub/schema/collection.schema.json" = "42fd72ec94fea39292f6a86de1964028836c8d6760c19b71fe7300e7a37c7c83"
+"verification/opds/schemas/readium-webpub/schema/contributor.schema.json" = "b2c6faffe22b52625f6aa8d9dcc0824dbe81321384d41de5ccbbd0c8e7914f65"
+"verification/opds/schemas/readium-webpub/schema/episode.schema.json" = "88b42128ad31b5adacc46a77f7b5dc8247746eec6990f52e7187c351fd96cf56"
+"verification/opds/schemas/readium-webpub/schema/extensions/encryption/properties.schema.json" = "a1c3b60c0ceb843d8e21466c089b4f46071f1331e75a7785e3504674eff9ee7a"
+"verification/opds/schemas/readium-webpub/schema/extensions/epub/metadata.schema.json" = "1fb524eeafafaf31a64d94179cb7486bc1cf638dd2b60130fca4f442f3fa4f0a"
+"verification/opds/schemas/readium-webpub/schema/extensions/epub/properties.schema.json" = "8b61a92fc765ba1a040e24d3ec591341c58353e6f38c99cd178a350340e39ca7"
+"verification/opds/schemas/readium-webpub/schema/extensions/epub/subcollections.schema.json" = "64ec516326c0ccb246d69c6b340c3f9fd8454c5022ac0b22f0641c584e87f62b"
+"verification/opds/schemas/readium-webpub/schema/issue.schema.json" = "50a59c0f877a96ca6f13e74da5265bcc9dcc47608437af02c8e503711bbf56a4"
+"verification/opds/schemas/readium-webpub/schema/language-map.schema.json" = "9c8ec169789b0d53c518b7ec0d9ac497a9a64af4d3e7cd2258d4e5ec7e2bf51c"
+"verification/opds/schemas/readium-webpub/schema/link.schema.json" = "79cd0daf776964934507af6116fd21d02e618397247715ed3470a129ac517b28"
+"verification/opds/schemas/readium-webpub/schema/metadata.schema.json" = "554848b3c80aa5c78c8cac63da716d0ba26891f4a351faf6ce0e95e7395572dd"
+"verification/opds/schemas/readium-webpub/schema/periodical.schema.json" = "e1e95f5202235a3c38034879d3a9c1b07131950c5abf26a0a2bfa775c049b807"
+"verification/opds/schemas/readium-webpub/schema/publication.schema.json" = "8f9bbe70dfb2793783d370a09db1b9e4b6022b83db164541e2aa382d213046ff"
+"verification/opds/schemas/readium-webpub/schema/season.schema.json" = "bb890cf5272b4a40ff50eb27c85f3c5ddd12040fec57445ce2a083f8cc0088e8"
+"verification/opds/schemas/readium-webpub/schema/series.schema.json" = "508f59ecb80c892c3a332b98cdda8b4f3d87eb86056105a0119081efc22c8a50"
+"verification/opds/schemas/readium-webpub/schema/storyArc.schema.json" = "6d5afaeae4b6921f6d01ee025e89fea9560ea1e96784be9419cf50b1ee12f1f3"
+"verification/opds/schemas/readium-webpub/schema/subcollection.schema.json" = "fd95b6fd95d104b41acb1066c3faefab295e9c6020533db9d691d02d907403e4"
+"verification/opds/schemas/readium-webpub/schema/subject.schema.json" = "de23387b6bd17ccbb71e3e39904af07d952037c641df47480c4e227751ee89c3"
+"verification/opds/schemas/readium-webpub/schema/volume.schema.json" = "0f6b7c8c91344f77cad9136709dc54f259460a0fb233d155a3ac1993d3150a00"

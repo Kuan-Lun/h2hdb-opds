@@ -1,0 +1,33 @@
+The files below verification/opds/schemas are immutable upstream or generated
+validation snapshots. The h2hdb-opds GPL-3.0-only project license does not
+replace their upstream terms.
+
+The OPDS schemas are copied byte-for-byte from opds-community/specs commit
+8fda670fc72f110abcf68ad5d26e99ecfeeabf03. That upstream tree contains no
+standalone schema license at the pinned commit. Its normative documents and
+repository history remain the authority for redistribution terms.
+
+atom.rnc is the RELAX NG grammar from RFC 4287 Appendix B, retrieved through
+the mirror recorded in sources.toml and cross-checked against the RFC. RFC
+Editor and IETF Trust legal provisions remain authoritative.
+
+The Readium Web Publication Manifest schema closure is copied from commit
+eb6f1338209111cc0ca4cedffd6c7d35ae064db1. Its BSD-3-Clause LICENSE is retained
+at verification/opds/schemas/readium-webpub/LICENSE.
+
+atom.rng and opds-upstream.rng were generated from the adjacent pinned RNC
+sources with Trang 20091111. Trang itself is not redistributed. Its Maven
+coordinate, URL, SHA-256, inputs, outputs, and regeneration command are recorded
+in sources.toml. opds-upstream.rng is the unmodified official grammar conversion
+and is compiled separately by the offline gate.
+
+The runtime opds.rng is derived deterministically from opds-upstream.rng. Its
+only grammar change corrects an upstream atomUri character class that spells the
+documented CR and TAB escapes as literal `r` and `t`. It remains strict about
+braces. The shared offline validator separately checks every original OPDS-PSE
+link's exact relation, JPEG type, bounded positive count, and single literal
+`{pageNumber}` token. Only that token is replaced in a validation-only copy
+before RELAX NG validation; ordinary brace-containing URIs and all other PSE
+attributes are rejected. The immutable upstream opds.rnc remains byte-for-byte
+unchanged, and the deterministic runtime generator is hashed under
+verification/opds/generation.

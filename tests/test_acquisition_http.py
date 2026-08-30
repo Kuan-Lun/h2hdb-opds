@@ -8,8 +8,10 @@ from h2hdb import CatalogRevision
 
 from h2hdb_opds import OPDSConfig, create_app
 
-from .fakes import CatalogFixture, FakeCatalog
+from .fakes import ALPHA_ARTIFACT_ID, CatalogFixture, FakeCatalog
 from .http_client import app_client
+
+_ALPHA_ACQUISITION_PATH = f"/opds/v2/acquisitions/{ALPHA_ARTIFACT_ID}"
 
 
 async def test_full_get_and_head_use_published_artifact_metadata(
@@ -17,13 +19,13 @@ async def test_full_get_and_head_use_published_artifact_metadata(
     opds_config: OPDSConfig,
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
-    path = "/opds/v2/acquisitions/artifact-alpha"
+    path = _ALPHA_ACQUISITION_PATH
 
     async with app_client(app) as client:
         response = await client.get(path)
         head = await client.head(path)
 
-    expected_etag = f'"{catalog_fixture.artifact.sha256}"'
+    expected_etag = f'"{catalog_fixture.artifact.storage_object.sha256}"'
     assert response.status_code == 200
     assert response.content == catalog_fixture.payload
     assert response.headers["content-type"] == catalog_fixture.artifact.media_type
@@ -46,16 +48,15 @@ async def test_download_name_uses_published_name_not_storage_path_and_is_safe(
     opds_config: OPDSConfig,
 ) -> None:
     published_name = '../../ignored\r\nX-Evil: yes\\友善 Gallery "Title".cbz'
-    artifact = replace(
-        catalog_fixture.artifact,
-        name=published_name,
-    )
-    publication = replace(catalog_fixture.publications[0], artifacts=(artifact,))
+    artifact = replace(catalog_fixture.artifact)
+    object.__setattr__(artifact, "name", published_name)
+    publication = replace(catalog_fixture.publications[0])
+    object.__setattr__(publication, "artifacts", (artifact,))
     catalog = FakeCatalog((publication,))
     app = create_app(opds_config, catalog)
 
     async with app_client(app) as client:
-        response = await client.get("/opds/v2/acquisitions/artifact-alpha")
+        response = await client.get(_ALPHA_ACQUISITION_PATH)
 
     disposition = response.headers["content-disposition"]
     encoded_published_name = quote('友善 Gallery "Title".cbz', safe="")
@@ -76,7 +77,7 @@ async def test_single_closed_open_suffix_ranges_and_head_ignores_range(
     opds_config: OPDSConfig,
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
-    path = "/opds/v2/acquisitions/artifact-alpha"
+    path = _ALPHA_ACQUISITION_PATH
 
     async with app_client(app) as client:
         closed = await client.get(path, headers={"Range": "bytes=2-6"})
@@ -111,7 +112,7 @@ async def test_unsatisfiable_and_multiple_ranges_return_416(
     opds_config: OPDSConfig,
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
-    path = "/opds/v2/acquisitions/artifact-alpha"
+    path = _ALPHA_ACQUISITION_PATH
     size = len(catalog_fixture.payload)
 
     async with app_client(app) as client:
@@ -138,8 +139,8 @@ async def test_if_range_controls_whether_range_is_applied(
     opds_config: OPDSConfig,
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
-    path = "/opds/v2/acquisitions/artifact-alpha"
-    etag = f'"{catalog_fixture.artifact.sha256}"'
+    path = _ALPHA_ACQUISITION_PATH
+    etag = f'"{catalog_fixture.artifact.storage_object.sha256}"'
 
     async with app_client(app) as client:
         matching = await client.get(
@@ -168,8 +169,8 @@ async def test_conditional_requests_prioritize_if_none_match(
     opds_config: OPDSConfig,
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
-    path = "/opds/v2/acquisitions/artifact-alpha"
-    etag = f'"{catalog_fixture.artifact.sha256}"'
+    path = _ALPHA_ACQUISITION_PATH
+    etag = f'"{catalog_fixture.artifact.storage_object.sha256}"'
     future = "Thu, 06 Aug 2026 12:30:45 GMT"
 
     async with app_client(app) as client:
@@ -201,8 +202,8 @@ async def test_if_match_and_if_unmodified_since_follow_precondition_order(
     opds_config: OPDSConfig,
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
-    path = "/opds/v2/acquisitions/artifact-alpha"
-    etag = f'"{catalog_fixture.artifact.sha256}"'
+    path = _ALPHA_ACQUISITION_PATH
+    etag = f'"{catalog_fixture.artifact.storage_object.sha256}"'
     before = "Tue, 04 Aug 2026 12:30:45 GMT"
 
     async with app_client(app) as client:
@@ -232,7 +233,7 @@ async def test_if_range_http_date_requires_exact_last_modified_match(
     opds_config: OPDSConfig,
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
-    path = "/opds/v2/acquisitions/artifact-alpha"
+    path = _ALPHA_ACQUISITION_PATH
     exact = "Wed, 05 Aug 2026 12:30:45 GMT"
     later = "Thu, 06 Aug 2026 12:30:45 GMT"
 
@@ -262,14 +263,14 @@ async def test_artifact_path_rejects_symlinks_and_special_files(
     secure_config = opds_config.model_copy(update={"library_root": trusted_root})
     outside_root = tmp_path / "outside.cbz"
     outside_root.write_bytes(catalog_fixture.payload)
-    relative = Path(*catalog_fixture.artifact.storage_key.segments)
+    relative = Path(*catalog_fixture.artifact.storage_object.key.segments)
     expected = trusted_root / relative
     expected.parent.mkdir(parents=True)
     expected.symlink_to(outside_root)
     catalog = FakeCatalog((catalog_fixture.publications[0],))
 
     async with app_client(create_app(secure_config, catalog)) as client:
-        linked_response = await client.get("/opds/v2/acquisitions/artifact-alpha")
+        linked_response = await client.get(_ALPHA_ACQUISITION_PATH)
 
     expected.unlink()
     shard_root = trusted_root / relative.parts[0]
@@ -285,13 +286,13 @@ async def test_artifact_path_rejects_symlinks_and_special_files(
     shard_root.symlink_to(outside_directory, target_is_directory=True)
 
     async with app_client(create_app(secure_config, catalog)) as client:
-        nested_link_response = await client.get("/opds/v2/acquisitions/artifact-alpha")
+        nested_link_response = await client.get(_ALPHA_ACQUISITION_PATH)
 
     shard_root.unlink()
     expected.parent.mkdir(parents=True)
     os.mkfifo(expected)
     async with app_client(create_app(secure_config, catalog)) as client:
-        fifo_response = await client.get("/opds/v2/acquisitions/artifact-alpha")
+        fifo_response = await client.get(_ALPHA_ACQUISITION_PATH)
 
     assert linked_response.status_code == 404
     assert nested_link_response.status_code == 404
@@ -306,8 +307,8 @@ async def test_artifact_size_contract_is_checked_without_hashing(
     app = create_app(opds_config, catalog_fixture.catalog)
 
     async with app_client(app) as client:
-        response = await client.get("/opds/v2/acquisitions/artifact-alpha")
-        head = await client.head("/opds/v2/acquisitions/artifact-alpha")
+        response = await client.get(_ALPHA_ACQUISITION_PATH)
+        head = await client.head(_ALPHA_ACQUISITION_PATH)
 
     assert response.status_code == 409
     assert head.status_code == 409
@@ -318,8 +319,8 @@ async def test_head_and_not_modified_do_not_read_artifact_payload(
     opds_config: OPDSConfig,
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
-    path = "/opds/v2/acquisitions/artifact-alpha"
-    etag = f'"{catalog_fixture.artifact.sha256}"'
+    path = _ALPHA_ACQUISITION_PATH
+    etag = f'"{catalog_fixture.artifact.storage_object.sha256}"'
 
     with patch(
         "h2hdb_opds.acquisition._read_file",
@@ -360,7 +361,7 @@ async def test_open_descriptor_stream_survives_atomic_leaf_replacement(
         side_effect=replace_before_head_revalidation,
     ):
         async with app_client(app) as client:
-            response = await client.get("/opds/v2/acquisitions/artifact-alpha")
+            response = await client.get(_ALPHA_ACQUISITION_PATH)
 
     assert response.status_code == 200
     assert response.content == catalog_fixture.payload

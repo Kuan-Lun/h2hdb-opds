@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
+from h2hdb import CatalogDiscoveryQuery, CatalogFacetKind, CatalogRecentOrder
 
 from .acquisition import serve_artifact
 from .auth import (
@@ -13,12 +14,15 @@ from .auth import (
 )
 from .catalog_service import CatalogService
 from .config import OPDSConfig
+from .discovery import discovery_query
 from .serialization import (
     OPDS_FEED_MEDIA_TYPE,
     OPDS_PUBLICATION_MEDIA_TYPE,
+    discovery_document,
+    facet_navigation_document,
     navigation_document,
     publication_document,
-    publications_document,
+    recent_document,
 )
 
 _INT63_MAX = (1 << 63) - 1
@@ -54,7 +58,41 @@ def create_opds2_router(
     ) -> JSONResponse:
         selected = catalog.revision(revision)
         return JSONResponse(
-            navigation_document(request, config, selected, selected.artifact_count),
+            navigation_document(request, config, selected),
+            media_type=OPDS_FEED_MEDIA_TYPE,
+        )
+
+    def discovery_response(
+        request: Request,
+        *,
+        query: CatalogDiscoveryQuery,
+        cursor: str | None,
+        limit: int | None,
+        revision: int | None,
+        endpoint: str,
+        title: str,
+    ) -> JSONResponse:
+        selection = catalog.discover_publications(
+            query=query,
+            cursor=cursor,
+            limit=limit,
+            revision=revision,
+        )
+        facets = catalog.facets(
+            query=query,
+            revision=selection.page.revision.revision,
+        )
+        return JSONResponse(
+            discovery_document(
+                request,
+                config,
+                selection.page,
+                cursor=selection.cursor,
+                query=query,
+                facet_pages=facets,
+                endpoint=endpoint,
+                title=title,
+            ),
             media_type=OPDS_FEED_MEDIA_TYPE,
         )
 
@@ -65,6 +103,11 @@ def create_opds2_router(
     )
     def list_publications(
         request: Request,
+        language: Annotated[str | None, Query(max_length=1024)] = None,
+        tag: Annotated[str | None, Query(max_length=1024)] = None,
+        tag_namespace: Annotated[str | None, Query(max_length=1024)] = None,
+        contributor: Annotated[str | None, Query(max_length=1024)] = None,
+        role: Annotated[str | None, Query(max_length=1024)] = None,
         cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
         limit: Annotated[int | None, Query(ge=1, le=128)] = None,
         revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
@@ -75,21 +118,49 @@ def create_opds2_router(
                 status_code=422,
                 detail="offset pagination was removed; follow the cursor links",
             )
-        selection = catalog.list_publications(
+        try:
+            query = discovery_query(
+                search=None,
+                language=language,
+                tag=tag,
+                tag_namespace=tag_namespace,
+                contributor=contributor,
+                role=role,
+            )
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return discovery_response(
+            request,
+            query=query,
             cursor=cursor,
             limit=limit,
             revision=revision,
+            endpoint="list_publications",
+            title="All Publications",
         )
-        return JSONResponse(
-            publications_document(
-                request,
-                config,
-                selection.page,
-                cursor=selection.cursor,
-                endpoint="list_publications",
-            ),
-            media_type=OPDS_FEED_MEDIA_TYPE,
-        )
+
+    def selected_query(
+        *,
+        search: str | None,
+        require_search: bool = False,
+        language: str | None,
+        tag: str | None,
+        tag_namespace: str | None,
+        contributor: str | None,
+        role: str | None,
+    ) -> CatalogDiscoveryQuery:
+        try:
+            return discovery_query(
+                search=search,
+                required_search_field="query" if require_search else None,
+                language=language,
+                tag=tag,
+                tag_namespace=tag_namespace,
+                contributor=contributor,
+                role=role,
+            )
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @protected.get(
         "/search",
@@ -97,17 +168,166 @@ def create_opds2_router(
         response_class=JSONResponse,
     )
     def search_publications(
-        query: Annotated[str, Query(min_length=1, max_length=200)],
+        request: Request,
+        query: Annotated[str | None, Query(max_length=1024)] = None,
+        language: Annotated[str | None, Query(max_length=1024)] = None,
+        tag: Annotated[str | None, Query(max_length=1024)] = None,
+        tag_namespace: Annotated[str | None, Query(max_length=1024)] = None,
+        contributor: Annotated[str | None, Query(max_length=1024)] = None,
+        role: Annotated[str | None, Query(max_length=1024)] = None,
+        cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
         limit: Annotated[int | None, Query(ge=1, le=128)] = None,
         revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
+        offset: Annotated[str | None, Query(include_in_schema=False)] = None,
+        q: Annotated[str | None, Query(include_in_schema=False)] = None,
     ) -> JSONResponse:
-        normalized_query = " ".join(query.split())
-        if not normalized_query:
-            raise HTTPException(status_code=422, detail="query must not be blank")
-        del limit, revision
-        raise HTTPException(
-            status_code=501,
-            detail="Catalog search is unavailable until its bounded index is built",
+        if q is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="q was removed from OPDS 2 search; use query",
+            )
+        if offset is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="offset pagination was removed; follow the cursor links",
+            )
+        selected = selected_query(
+            search=query,
+            require_search=True,
+            language=language,
+            tag=tag,
+            tag_namespace=tag_namespace,
+            contributor=contributor,
+            role=role,
+        )
+        return discovery_response(
+            request,
+            query=selected,
+            cursor=cursor,
+            limit=limit,
+            revision=revision,
+            endpoint="search_publications",
+            title=(
+                "Search Results"
+                if selected.search is not None
+                else "Browse Publications"
+            ),
+        )
+
+    @protected.get(
+        "/facets/{facet}",
+        name="facet_values",
+        response_class=JSONResponse,
+    )
+    def facet_values(
+        request: Request,
+        facet: str,
+        query: Annotated[str | None, Query(max_length=1024)] = None,
+        language: Annotated[str | None, Query(max_length=1024)] = None,
+        tag: Annotated[str | None, Query(max_length=1024)] = None,
+        tag_namespace: Annotated[str | None, Query(max_length=1024)] = None,
+        contributor: Annotated[str | None, Query(max_length=1024)] = None,
+        role: Annotated[str | None, Query(max_length=1024)] = None,
+        cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
+        limit: Annotated[int | None, Query(ge=1, le=128)] = None,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
+        q: Annotated[str | None, Query(include_in_schema=False)] = None,
+    ) -> JSONResponse:
+        if q is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="q was removed from OPDS 2 search; use query",
+            )
+        try:
+            facet_kind = CatalogFacetKind(facet)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail="Facet not found") from error
+        selected = selected_query(
+            search=query,
+            language=language,
+            tag=tag,
+            tag_namespace=tag_namespace,
+            contributor=contributor,
+            role=role,
+        )
+        selection = catalog.facet_page(
+            facet=facet_kind,
+            query=selected,
+            cursor=cursor,
+            limit=limit,
+            revision=revision,
+        )
+        return JSONResponse(
+            facet_navigation_document(
+                request,
+                config,
+                selection.page,
+                cursor=selection.cursor,
+                query=selected,
+            ),
+            media_type=OPDS_FEED_MEDIA_TYPE,
+        )
+
+    def recent_response(
+        request: Request,
+        *,
+        order: CatalogRecentOrder,
+        revision: int | None,
+        endpoint: str,
+        title: str,
+    ) -> JSONResponse:
+        if any(
+            parameter in request.query_params
+            for parameter in ("cursor", "limit", "offset")
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="recent feeds are fixed complete windows and are not paginated",
+            )
+        window = catalog.recent_publications(order=order, revision=revision)
+        return JSONResponse(
+            recent_document(
+                request,
+                config,
+                window,
+                endpoint=endpoint,
+                title=title,
+            ),
+            media_type=OPDS_FEED_MEDIA_TYPE,
+        )
+
+    @protected.get(
+        "/recent/uploaded",
+        name="recently_uploaded",
+        response_class=JSONResponse,
+    )
+    def recently_uploaded(
+        request: Request,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
+    ) -> JSONResponse:
+        return recent_response(
+            request,
+            order=CatalogRecentOrder.UPLOADED,
+            revision=revision,
+            endpoint="recently_uploaded",
+            title="Recently Uploaded",
+        )
+
+    @protected.get(
+        "/recent/downloaded",
+        name="recently_downloaded",
+        response_class=JSONResponse,
+    )
+    def recently_downloaded(
+        request: Request,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
+    ) -> JSONResponse:
+        return recent_response(
+            request,
+            order=CatalogRecentOrder.DOWNLOADED,
+            revision=revision,
+            endpoint="recently_downloaded",
+            title="Recently Downloaded",
         )
 
     @protected.get(

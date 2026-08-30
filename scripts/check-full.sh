@@ -6,6 +6,9 @@ repository_root="$(git rev-parse --show-toplevel)"
 cd "$repository_root"
 
 scripts/check-fast.sh
+.venv/bin/python scripts/check-opds-schema-snapshots.py
+.venv/bin/python scripts/validate-opds12.py --check-schema
+node scripts/validate-opds2.mjs --check-schemas
 .venv/bin/pytest
 
 artifact_root="$(mktemp -d "${TMPDIR:-/tmp}/h2hdb-opds-check.XXXXXX")"

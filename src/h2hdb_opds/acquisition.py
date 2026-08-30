@@ -1,4 +1,4 @@
-__all__ = ["serve_artifact"]
+__all__ = ["serve_artifact", "serve_image_resource"]
 
 import os
 import re
@@ -14,17 +14,26 @@ from urllib.parse import quote
 
 from fastapi import HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
-from h2hdb import ArtifactStorageKey, CatalogArtifact
+from h2hdb import CatalogArtifact, CatalogImageResource
 
 from .library import open_directory_without_symlinks
 
 _BYTE_RANGE_PATTERN = re.compile(r"bytes=[ \t]*(\d*)-(\d*)", re.IGNORECASE)
 _CHUNK_SIZE = 64 * 1024
 _DEFAULT_DOWNLOAD_NAME = "download"
+_MANAGED_FILESYSTEM_CODEC = "managed-filesystem-v2"
 
 
 class HeadRevalidator(Protocol):
     def __call__(self) -> None: ...
+
+
+class StorageKey(Protocol):
+    @property
+    def codec(self) -> str: ...
+
+    @property
+    def segments(self) -> tuple[str, ...]: ...
 
 
 class RangeNotSatisfiable(ValueError):
@@ -39,6 +48,18 @@ class ByteRange:
     @property
     def length(self) -> int:
         return self.end - self.start + 1
+
+
+@dataclass(frozen=True, slots=True)
+class SealedByteResource:
+    storage_key: StorageKey
+    storage_size: int
+    extent_offset: int
+    content_size: int
+    content_sha256: str
+    modified_at: datetime
+    media_type: str
+    download_name: str | None = None
 
 
 def _normalized_datetime(value: datetime) -> datetime:
@@ -62,8 +83,8 @@ def _parse_http_date(value: str) -> datetime | None:
     return parsed.astimezone(UTC).replace(microsecond=0)
 
 
-def _etag(artifact: CatalogArtifact) -> str:
-    return f'"{artifact.sha256.casefold()}"'
+def _etag(resource: SealedByteResource) -> str:
+    return f'"{resource.content_sha256.casefold()}"'
 
 
 def _entity_tags(value: str) -> Iterator[str]:
@@ -92,7 +113,7 @@ def _if_none_match_matches(value: str, etag: str) -> bool:
 
 def _precondition_status(
     request: Request,
-    artifact: CatalogArtifact,
+    resource: SealedByteResource,
     etag: str,
 ) -> int | None:
     if_match = request.headers.get("If-Match")
@@ -105,7 +126,7 @@ def _precondition_status(
             parsed = _parse_http_date(if_unmodified_since)
             if (
                 parsed is not None
-                and _normalized_datetime(artifact.modified_at) > parsed
+                and _normalized_datetime(resource.modified_at) > parsed
             ):
                 return 412
 
@@ -119,20 +140,20 @@ def _precondition_status(
             parsed = _parse_http_date(if_modified_since)
             if (
                 parsed is not None
-                and _normalized_datetime(artifact.modified_at) <= parsed
+                and _normalized_datetime(resource.modified_at) <= parsed
             ):
                 return 304
     return None
 
 
-def _if_range_matches(value: str, artifact: CatalogArtifact, etag: str) -> bool:
+def _if_range_matches(value: str, resource: SealedByteResource, etag: str) -> bool:
     normalized = value.strip()
     if normalized[:2].casefold() == "w/":
         return False
     if normalized.startswith('"'):
         return normalized == etag
     parsed = _parse_http_date(normalized)
-    return parsed is not None and _normalized_datetime(artifact.modified_at) == parsed
+    return parsed is not None and _normalized_datetime(resource.modified_at) == parsed
 
 
 def _parse_range(value: str, size: int) -> ByteRange:
@@ -161,22 +182,26 @@ def _parse_range(value: str, size: int) -> ByteRange:
     return ByteRange(start=start, end=min(end, size - 1))
 
 
-def _read_file(artifact_file: BinaryIO, byte_range: ByteRange) -> Iterator[bytes]:
+def _read_file(
+    source: BinaryIO,
+    byte_range: ByteRange,
+    *,
+    extent_offset: int = 0,
+) -> Iterator[bytes]:
     remaining = byte_range.length
     try:
-        artifact_file.seek(byte_range.start)
+        source.seek(extent_offset + byte_range.start)
         while remaining > 0:
-            chunk = artifact_file.read(min(_CHUNK_SIZE, remaining))
+            chunk = source.read(min(_CHUNK_SIZE, remaining))
             if not chunk:
-                raise OSError("Artifact ended before its sealed size")
+                raise OSError("Resource ended before its sealed extent")
             remaining -= len(chunk)
             yield chunk
     finally:
-        artifact_file.close()
+        source.close()
 
 
 def _download_name(published_name: str) -> str:
-    """Return a safe leaf name without consulting the storage path."""
     normalized = unicodedata.normalize("NFC", published_name).replace("\\", "/")
     leaf = normalized.rsplit("/", maxsplit=1)[-1]
     leaf = "".join(
@@ -210,16 +235,21 @@ def _content_disposition(published_name: str) -> str:
     return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
 
 
-def _base_headers(artifact: CatalogArtifact) -> dict[str, str]:
-    return {
+def _base_headers(resource: SealedByteResource) -> dict[str, str]:
+    headers = {
         "Accept-Ranges": "bytes",
-        "ETag": _etag(artifact),
-        "Last-Modified": _http_date(artifact.modified_at),
-        "Content-Disposition": _content_disposition(artifact.name),
+        "ETag": _etag(resource),
+        "Last-Modified": _http_date(resource.modified_at),
+        "X-Content-Type-Options": "nosniff",
     }
+    if resource.download_name is not None:
+        headers["Content-Disposition"] = _content_disposition(resource.download_name)
+    return headers
 
 
-def _relative_storage_path(root: Path, storage_key: ArtifactStorageKey) -> Path:
+def _relative_storage_path(root: Path, storage_key: StorageKey) -> Path:
+    if storage_key.codec != _MANAGED_FILESYSTEM_CODEC:
+        raise HTTPException(status_code=404, detail="Storage codec is unavailable")
     candidate = root.joinpath(*storage_key.segments)
     normalized = Path(os.path.abspath(candidate))
     normalized_root = Path(os.path.abspath(root))
@@ -228,14 +258,14 @@ def _relative_storage_path(root: Path, storage_key: ArtifactStorageKey) -> Path:
     except ValueError as error:
         raise HTTPException(
             status_code=404,
-            detail="Artifact is outside the configured library root",
+            detail="Resource is outside the configured library root",
         ) from error
     if not relative.parts:
-        raise HTTPException(status_code=404, detail="Artifact is unavailable")
+        raise HTTPException(status_code=404, detail="Resource is unavailable")
     return relative
 
 
-def _open_without_symlinks(root: Path, storage_key: ArtifactStorageKey) -> BinaryIO:
+def _open_without_symlinks(root: Path, storage_key: StorageKey) -> BinaryIO:
     relative = _relative_storage_path(root, storage_key)
     directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
     file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
@@ -249,8 +279,7 @@ def _open_without_symlinks(root: Path, storage_key: ArtifactStorageKey) -> Binar
         file_descriptor = os.open(relative.name, file_flags, dir_fd=descriptor)
     except OSError as error:
         raise HTTPException(
-            status_code=404,
-            detail="Artifact is unavailable",
+            status_code=404, detail="Resource is unavailable"
         ) from error
     finally:
         if descriptor >= 0:
@@ -262,21 +291,30 @@ def _open_without_symlinks(root: Path, storage_key: ArtifactStorageKey) -> Binar
         raise
 
 
-def _open_sealed_artifact(root: Path, artifact: CatalogArtifact) -> BinaryIO:
-    source = _open_without_symlinks(root, artifact.storage_key)
+def _open_sealed_resource(root: Path, resource: SealedByteResource) -> BinaryIO:
+    source = _open_without_symlinks(root, resource.storage_key)
     try:
         source_stat = os.fstat(source.fileno())
         if not stat.S_ISREG(source_stat.st_mode):
-            raise HTTPException(status_code=404, detail="Artifact is unavailable")
+            raise HTTPException(status_code=404, detail="Resource is unavailable")
     except BaseException:
         source.close()
         raise
-    if source_stat.st_size != artifact.size_bytes:
+    # The activation protocol makes every object beneath ``current`` immutable
+    # for the lifetime of its catalog revision. Size is rechecked here to bind
+    # the opened inode to the sealed descriptor; hashing on every request would
+    # defeat direct streaming. The shared publication lock and head recheck
+    # below are the authority that prevents an unsealed replacement.
+    if source_stat.st_size != resource.storage_size:
         source.close()
         raise HTTPException(
             status_code=409,
-            detail="Artifact no longer matches its published catalog metadata",
+            detail="Resource no longer matches its published catalog metadata",
         )
+    extent_end = resource.extent_offset + resource.content_size
+    if resource.extent_offset < 0 or extent_end > resource.storage_size:
+        source.close()
+        raise HTTPException(status_code=409, detail="Resource extent is invalid")
     return source
 
 
@@ -287,6 +325,66 @@ def _range_unit(value: str) -> str | None:
     return unit.strip().casefold()
 
 
+def _serve(
+    request: Request,
+    resource: SealedByteResource,
+    *,
+    library_root: Path,
+    revalidate_head: HeadRevalidator,
+) -> Response:
+    source = _open_sealed_resource(library_root, resource)
+    try:
+        revalidate_head()
+    except BaseException:
+        source.close()
+        raise
+    headers = _base_headers(resource)
+    etag = headers["ETag"]
+
+    precondition_status = _precondition_status(request, resource, etag)
+    if precondition_status is not None:
+        source.close()
+        return Response(status_code=precondition_status, headers=headers)
+
+    selected_range: ByteRange | None = None
+    range_header = request.headers.get("Range") if request.method == "GET" else None
+    if range_header is not None and _range_unit(range_header) in {None, "bytes"}:
+        if_range = request.headers.get("If-Range")
+        if if_range is None or _if_range_matches(if_range, resource, etag):
+            try:
+                selected_range = _parse_range(range_header, resource.content_size)
+            except ValueError:
+                source.close()
+                headers["Content-Range"] = f"bytes */{resource.content_size}"
+                return Response(status_code=416, headers=headers)
+
+    if selected_range is None:
+        selected_range = ByteRange(0, resource.content_size - 1)
+        status_code = 200
+    else:
+        status_code = 206
+        headers["Content-Range"] = (
+            f"bytes {selected_range.start}-{selected_range.end}/{resource.content_size}"
+        )
+    headers["Content-Length"] = str(
+        selected_range.length if resource.content_size else 0
+    )
+
+    if request.method == "HEAD" or resource.content_size == 0:
+        source.close()
+        return Response(
+            status_code=status_code,
+            media_type=resource.media_type,
+            headers=headers,
+        )
+    return StreamingResponse(
+        _read_file(source, selected_range, extent_offset=resource.extent_offset),
+        status_code=status_code,
+        media_type=resource.media_type,
+        headers=headers,
+    )
+
+
 def serve_artifact(
     request: Request,
     artifact: CatalogArtifact,
@@ -294,52 +392,41 @@ def serve_artifact(
     library_root: Path,
     revalidate_head: HeadRevalidator,
 ) -> Response:
-    artifact_file = _open_sealed_artifact(library_root, artifact)
-    try:
-        revalidate_head()
-    except BaseException:
-        artifact_file.close()
-        raise
-    headers = _base_headers(artifact)
-    etag = headers["ETag"]
-
-    precondition_status = _precondition_status(request, artifact, etag)
-    if precondition_status is not None:
-        artifact_file.close()
-        return Response(status_code=precondition_status, headers=headers)
-
-    selected_range: ByteRange | None = None
-    range_header = request.headers.get("Range") if request.method == "GET" else None
-    if range_header is not None and _range_unit(range_header) in {None, "bytes"}:
-        if_range = request.headers.get("If-Range")
-        if if_range is None or _if_range_matches(if_range, artifact, etag):
-            try:
-                selected_range = _parse_range(range_header, artifact.size_bytes)
-            except ValueError:
-                artifact_file.close()
-                headers["Content-Range"] = f"bytes */{artifact.size_bytes}"
-                return Response(status_code=416, headers=headers)
-
-    if selected_range is None:
-        selected_range = ByteRange(0, artifact.size_bytes - 1)
-        status_code = 200
-    else:
-        status_code = 206
-        headers["Content-Range"] = (
-            f"bytes {selected_range.start}-{selected_range.end}/{artifact.size_bytes}"
-        )
-    headers["Content-Length"] = str(selected_range.length if artifact.size_bytes else 0)
-
-    if request.method == "HEAD" or artifact.size_bytes == 0:
-        artifact_file.close()
-        return Response(
-            status_code=status_code,
+    return _serve(
+        request,
+        SealedByteResource(
+            storage_key=artifact.storage_object.key,
+            storage_size=artifact.storage_object.size_bytes,
+            extent_offset=0,
+            content_size=artifact.storage_object.size_bytes,
+            content_sha256=artifact.storage_object.sha256,
+            modified_at=artifact.storage_object.modified_at,
             media_type=artifact.media_type,
-            headers=headers,
-        )
-    return StreamingResponse(
-        _read_file(artifact_file, selected_range),
-        status_code=status_code,
-        media_type=artifact.media_type,
-        headers=headers,
+            download_name=artifact.name,
+        ),
+        library_root=library_root,
+        revalidate_head=revalidate_head,
+    )
+
+
+def serve_image_resource(
+    request: Request,
+    image: CatalogImageResource,
+    *,
+    library_root: Path,
+    revalidate_head: HeadRevalidator,
+) -> Response:
+    return _serve(
+        request,
+        SealedByteResource(
+            storage_key=image.storage_object.key,
+            storage_size=image.storage_object.size_bytes,
+            extent_offset=image.extent.offset,
+            content_size=image.extent.length,
+            content_sha256=image.sha256,
+            modified_at=image.storage_object.modified_at,
+            media_type=image.media_type,
+        ),
+        library_root=library_root,
+        revalidate_head=revalidate_head,
     )

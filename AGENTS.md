@@ -156,10 +156,11 @@
 ### Ownership boundary
 
 本 repository 擁有 FastAPI/ASGI integration、OPDS models/serialization、
-navigation、有界 recent windows、publication pagination、authentication、acquisition、
-Range 與 conditional HTTP response。OPDS 2 search 在 core 尚無 bounded
-index 時必須維持明確 501 stub；OPDS 1.2 不得廣告 search、artwork、OPDS-PSE、
-facet 或 standalone entry 等尚無 bounded authority 的能力。
+navigation、bounded discovery/facets/recent windows、publication seek
+pagination、presentation/media、authentication、acquisition、Range 與
+conditional HTTP response。兩版 search/facet 只能使用 core 公開的
+revision-scoped bounded authority，不得自行掃描 database、建立第二套 index
+或從 transient joins 推導結果。
 
 `h2hdb` core 獨占 connector、transaction、schema/migration、durable queue、
 coordination fencing 與 catalog repository。只能使用 core 公開介面，不得
@@ -174,27 +175,56 @@ path 均不得呼叫 `migrate()`。
 - `config.py` 擁有 frozen OPDS/server/authentication/core config models；
   `app.py` 負責 lifespan、exception mapping 與 composition；
   `catalog_service.py` 負責兩版共用的 bounded revision-pinned reads；
+  `discovery.py` 負責 protocol-neutral exact filter/query mapping；
   `opds12.py`/`atom.py` 與 `opds2.py`/`serialization.py` 分別負責協定 routes
   與 serialization；`auth.py` 負責 Basic auth 與 OPDS 2 authentication
-  document；`acquisition.py` 負責兩版共用的 artifact responses。
-- OPDS 1.2 catalog root 是 Atom navigation feed，只包含 `Recently Uploaded`
-  與 `Recently Downloaded` 兩個 entry；它們分別連到 core authoritative order
-  提供的固定最多 128 筆單頁 acquisition feed。Recent feeds 不接受 limit、
-  cursor 或 offset，不得產生 next、first、crawlable 或 All Publications
-  compatibility path。每個 feed 必須有穩定 id、title、updated 與 author；
-  每個 acquisition entry 必須有穩定 id、title、updated、text content 與至少
-  一個 acquisition link。OPDS 2 feed 使用 `application/opds+json`；standalone
-  publication 使用 `application/opds-publication+json`。
+  document；`acquisition.py` 負責 sealed extent responses；`media.py` 負責
+  version-neutral page/thumbnail routes；`publication.py` 負責 URI identifier 與
+  acquisition relation policy。
+- OPDS 1.2 與 2 root 必須同樣只有 `All Publications`、
+  `Recently Uploaded`、`Recently Downloaded` 三個 navigation item。All 與 search
+  使用 core discovery seek cursor，page limit 為 1..128；recent 使用 core
+  authoritative order 的固定完整 top-128 window，不接受 limit、cursor 或
+  offset，也不產生 next/first/crawlable。OPDS 1.2 feed/entry 必須滿足 Atom 與
+  OPDS RNC；OPDS 2 feed 使用 `application/opds+json`，standalone publication
+  使用 `application/opds-publication+json`。
+- OPDS 1.2 search 使用 `q` 與 OpenSearch `{searchTerms}`；OPDS 2 依規格只使用
+  `query`，舊 `q` 必須回 422，不保留 alias。`tag` 與 `tag_namespace`、
+  `contributor` 與 `role` 分別必須成對。Facet filter bytes 必須 exact
+  round-trip，不得 trim、Unicode normalize 或 collapse whitespace。Facet values
+  必須 bounded paged，超過第一個 window 時提供 followable next/More link。Search
+  endpoint 必須拒絕 absent、blank、無 searchable lexeme 與超過 core lexeme 上限的
+  query；無 free-text 的 facet browse 使用 publications route。
+- Discovery 是 acquisition-only surface。revision `artifact_count=0` 時，即使
+  `publication_count>0` 也直接產生 schema-valid empty discovery/facets/recent；
+  `artifact_count=publication_count` 時每個 publication 必須有 artifact；其他
+  count shape fail closed。OPDS 2 empty feed 不得輸出 `publications: []`，必須
+  省略該 member 並提供非空 navigation fallback。
+- Publication identifier 只接受 canonical
+  `urn:h2h:gallery:<positive-int63>`；0、leading zero、非 ASCII digit、overflow 與
+  arbitrary URI 必須 fail closed，且 suffix 必須等於 publication authoritative
+  `gid`。Anonymous acquisition 使用 open-access relation，auth-enabled catalog
+  使用 generic acquisition relation。每本 publication 只接受一個 exact
+  `application/vnd.comicbook+zip` direct artifact；其他 adapter MIME fail closed。
+- OPDS 1.2 publication 有 page 時必須輸出 cover、thumbnail 與 OPDS-PSE stream；
+  page 0 是 cover、thumbnail 是 ingest 預生成的 320px resource、PSE page number
+  是 zero-based，OPDS boundary 自己驗 0..4096 page count、JPEG resources 與
+  cover/thumbnail presence shape；href 必須保留 literal `{pageNumber}`，只輸出
+  `pse:count`，不輸出 `lastRead`/`maxWidth`。OPDS 2 只輸出 `images` 與正數
+  `numberOfPages`，不得宣稱 non-normative PSE conformance。
 - acquisition ETag 是 ingest activation 已驗證並封存的 strong SHA-256
   validator。每次 request 不得重新 hash 或複製整個 CBZ。RFC
   precondition 必須按 `If-Match` 到 `If-Modified-Since` 的順序處理。
 - 只支援單一 byte range。invalid、multiple 或 unsatisfiable range 回 416
   並帶 `Content-Range`；未知 unit 忽略；`If-Range` mismatch 回完整 200；
   date comparison 必須精確。
-- `library_root` 是 single-library host root 下 `current` 的獨立 read-only
-  mount，也是唯一 public current tree；artifact 只能透過 core 的
-  `ArtifactStorageKey.segments` 在 configured real library root 內解析，open
-  時不得 follow symlink，且只接受符合 sealed size 的 regular file。
+- `library_root` 是 single-library host root 下完整 `current` 的獨立 read-only
+  mount，也是唯一 public current tree；OPDS 需要 `acquisitions` 與 `artwork`
+  兩個 subtree，Komga 只能 mount `current/acquisitions`。Storage object 只能透過
+  core opaque `StorageObjectKey` 解析，且只接受 exact
+  `managed-filesystem-v2` codec；未知 codec fail closed。open 時不得 follow
+  symlink，且只接受符合 sealed enclosing-object size、合法 positive bounded
+  extent 的 regular file。
 - `coordination_root` 是同一 host root 下 sibling `.h2hdb-coordination` 的獨立
   read-only mount，只包含 permanent `publication.lock` 與 optional
   `ACTIVATING`。不得把 parent root 或 `.h2hdb-state` 的 staging、quarantine、
@@ -211,12 +241,12 @@ path 均不得呼叫 `migrate()`。
   Basic auth 只允許 effective HTTPS：local TLS 或明確 trusted
   TLS-terminating proxy。credential comparison 使用
   `secrets.compare_digest`。
-- OPDS 1.2 recent feeds 只能使用 core pinned
-  `list_recent_artifact_publications` hard-capped windows；OPDS 2 listing 使用
-  core pinned `list_artifact_publications` seek cursor與 immutable revision
-  `artifact_count`。兩者都必須確保每個 serialized publication 有 acquisition
-  link；不得使用 `OFFSET`、逐頁 `COUNT(*)`、OPDS-side sort 或
-  protocol-specific durable pagination state。
+- 兩版 discovery/facets/recent 只能使用 core pinned
+  `discover_publications`、`list_publication_facets` 與
+  `list_recent_publications`；page/thumbnail 只能使用 core presentation APIs。
+  每個 serialized publication 必須有 acquisition link；不得使用 legacy listing
+  API、`OFFSET`、逐頁 `COUNT(*)`、OPDS-side sort、request-time ZIP parsing/image
+  resize 或 protocol-specific durable pagination state。
 - 所有 feed、publication、pagination 與 acquisition link 都攜帶 selected
   revision。省略 revision 時選 current head；明確 revision 只有等於 current
   head 才接受，其他回 404。不得將 stale revision 替換成 current data，或在
@@ -233,5 +263,18 @@ path 均不得呼叫 `migrate()`。
   symlink、activation marker/lock、atomic replacement、sealed size、direct
   streaming、Range、conditional request 與 revision pinning 變更都必須新增
   regression coverage。
-- `scripts/check-full.sh` 執行完整 pytest、sdist/wheel build，以及從 installed
-  wheel 執行 package/CLI smoke。
+- `verification/opds/schemas` 是 pinned immutable upstream/generated snapshot
+  closure；`sources.toml` 記錄 source commit/URL、license/notice、Trang coordinate
+  與 SHA-256，`scripts/check-opds-schema-snapshots.py` 驗 exact file closure/hash。
+  `opds-upstream.rng`/`atom.rng` 只能由 pinned RNC 與 pinned Trang 重新產生；
+  `opds.rng` 只能由 hashed deterministic generator 加上唯一 CR/TAB typo correction，
+  不得包含 PSE URI overlay 或手改。Raw upstream RNC 必須維持 byte-for-byte。
+  CLI 與 pytest 必須共用 validation-only PSE helper：先在原文件驗 exact stream
+  rel、`image/jpeg`、1..4096 `pse:count`、唯一 literal `{pageNumber}` 且拒絕其餘
+  braces/PSE attributes，再只於 deep copy 以合法 sentinel 替代 token 後套用 strict
+  runtime RNG。Release gate 不得依賴 Java、network 或 unresolved JSON Schema ref。
+- `scripts/check-full.sh` 必須離線 compile unmodified/strict-runtime OPDS 1.2
+  RELAX NG 與完整
+  OPDS 2/Readium JSON Schema closure，並透過 pytest 驗實際 root/all/search/recent/
+  facet/standalone/empty corpus及 invalid Atom、URI、empty array、unresolved-ref
+  negative controls，再執行 sdist/wheel build 與 installed wheel CLI smoke。

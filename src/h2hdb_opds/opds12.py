@@ -4,18 +4,25 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
-from h2hdb import CatalogRecentOrder
+from h2hdb import CatalogDiscoveryQuery, CatalogFacetKind, CatalogRecentOrder
 
 from .acquisition import serve_artifact
 from .atom import (
     OPDS12_ACQUISITION_MEDIA_TYPE,
+    OPDS12_ENTRY_MEDIA_TYPE,
     OPDS12_NAVIGATION_MEDIA_TYPE,
+    OPEN_SEARCH_MEDIA_TYPE,
+    acquisition_feed_document,
+    facet_navigation_feed_document,
     navigation_feed_document,
+    opensearch_description_document,
+    publication_entry_document,
     recent_acquisition_feed_document,
 )
 from .auth import BasicAuthenticator
 from .catalog_service import CatalogService
 from .config import OPDSConfig
+from .discovery import discovery_query
 
 _INT63_MAX = (1 << 63) - 1
 
@@ -30,14 +37,15 @@ def create_opds12_router(
         dependencies=[Depends(authenticator)],
     )
 
-    def reject_pagination(request: Request) -> None:
-        if any(
-            parameter in request.query_params
-            for parameter in ("cursor", "limit", "offset")
-        ):
+    def reject_parameters(request: Request, names: tuple[str, ...]) -> None:
+        invalid = next(
+            (name for name in names if name in request.query_params),
+            None,
+        )
+        if invalid is not None:
             raise HTTPException(
                 status_code=422,
-                detail="OPDS 1.2 catalog does not support pagination",
+                detail=f"{invalid} is not supported by this catalog resource",
             )
 
     def atom_response(
@@ -65,12 +73,225 @@ def create_opds12_router(
         request: Request,
         revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> Response:
-        reject_pagination(request)
+        reject_parameters(request, ("cursor", "limit", "offset"))
         selected = catalog.revision(revision)
         return atom_response(
             request,
             document=navigation_feed_document(request, config, selected),
             media_type=OPDS12_NAVIGATION_MEDIA_TYPE,
+        )
+
+    @router.api_route(
+        "/publications",
+        methods=["GET", "HEAD"],
+        name="opds12_publications",
+        response_class=Response,
+    )
+    def publications_feed(
+        request: Request,
+        language: Annotated[str | None, Query(max_length=1024)] = None,
+        tag: Annotated[str | None, Query(max_length=1024)] = None,
+        tag_namespace: Annotated[str | None, Query(max_length=1024)] = None,
+        contributor: Annotated[str | None, Query(max_length=1024)] = None,
+        role: Annotated[str | None, Query(max_length=1024)] = None,
+        cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
+        limit: Annotated[int | None, Query(ge=1, le=128)] = None,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
+        offset: Annotated[str | None, Query(include_in_schema=False)] = None,
+    ) -> Response:
+        if offset is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="offset pagination was removed; follow the cursor links",
+            )
+        try:
+            query = discovery_query(
+                search=None,
+                language=language,
+                tag=tag,
+                tag_namespace=tag_namespace,
+                contributor=contributor,
+                role=role,
+            )
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        selection = catalog.discover_publications(
+            query=query,
+            cursor=cursor,
+            limit=limit,
+            revision=revision,
+        )
+        facets = catalog.facets(
+            query=query,
+            revision=selection.page.revision.revision,
+        )
+        return atom_response(
+            request,
+            document=acquisition_feed_document(
+                request,
+                config,
+                selection.page,
+                cursor=selection.cursor,
+                query=query,
+                facet_pages=facets,
+                endpoint="opds12_publications",
+                title="All Publications",
+            ),
+            media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
+        )
+
+    def selected_query(
+        *,
+        q: str | None,
+        require_search: bool = False,
+        language: str | None,
+        tag: str | None,
+        tag_namespace: str | None,
+        contributor: str | None,
+        role: str | None,
+    ) -> CatalogDiscoveryQuery:
+        try:
+            return discovery_query(
+                search=q,
+                required_search_field="q" if require_search else None,
+                language=language,
+                tag=tag,
+                tag_namespace=tag_namespace,
+                contributor=contributor,
+                role=role,
+            )
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @router.api_route(
+        "/search",
+        methods=["GET", "HEAD"],
+        name="opds12_search",
+        response_class=Response,
+    )
+    def search_feed(
+        request: Request,
+        q: Annotated[str | None, Query(max_length=1024)] = None,
+        language: Annotated[str | None, Query(max_length=1024)] = None,
+        tag: Annotated[str | None, Query(max_length=1024)] = None,
+        tag_namespace: Annotated[str | None, Query(max_length=1024)] = None,
+        contributor: Annotated[str | None, Query(max_length=1024)] = None,
+        role: Annotated[str | None, Query(max_length=1024)] = None,
+        cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
+        limit: Annotated[int | None, Query(ge=1, le=128)] = None,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
+        offset: Annotated[str | None, Query(include_in_schema=False)] = None,
+    ) -> Response:
+        if offset is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="offset pagination was removed; follow the cursor links",
+            )
+        query = selected_query(
+            q=q,
+            require_search=True,
+            language=language,
+            tag=tag,
+            tag_namespace=tag_namespace,
+            contributor=contributor,
+            role=role,
+        )
+        selection = catalog.discover_publications(
+            query=query,
+            cursor=cursor,
+            limit=limit,
+            revision=revision,
+        )
+        facets = catalog.facets(
+            query=query,
+            revision=selection.page.revision.revision,
+        )
+        title = "Search Results" if query.search is not None else "Browse Publications"
+        return atom_response(
+            request,
+            document=acquisition_feed_document(
+                request,
+                config,
+                selection.page,
+                cursor=selection.cursor,
+                query=query,
+                facet_pages=facets,
+                endpoint="opds12_search",
+                title=title,
+            ),
+            media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
+        )
+
+    @router.api_route(
+        "/facets/{facet}",
+        methods=["GET", "HEAD"],
+        name="opds12_facet_values",
+        response_class=Response,
+    )
+    def facet_values(
+        request: Request,
+        facet: str,
+        q: Annotated[str | None, Query(max_length=1024)] = None,
+        language: Annotated[str | None, Query(max_length=1024)] = None,
+        tag: Annotated[str | None, Query(max_length=1024)] = None,
+        tag_namespace: Annotated[str | None, Query(max_length=1024)] = None,
+        contributor: Annotated[str | None, Query(max_length=1024)] = None,
+        role: Annotated[str | None, Query(max_length=1024)] = None,
+        cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
+        limit: Annotated[int | None, Query(ge=1, le=128)] = None,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
+    ) -> Response:
+        try:
+            facet_kind = CatalogFacetKind(facet)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail="Facet not found") from error
+        query = selected_query(
+            q=q,
+            language=language,
+            tag=tag,
+            tag_namespace=tag_namespace,
+            contributor=contributor,
+            role=role,
+        )
+        selection = catalog.facet_page(
+            facet=facet_kind,
+            query=query,
+            cursor=cursor,
+            limit=limit,
+            revision=revision,
+        )
+        return atom_response(
+            request,
+            document=facet_navigation_feed_document(
+                request,
+                config,
+                selection.page,
+                cursor=selection.cursor,
+                query=query,
+            ),
+            media_type=OPDS12_NAVIGATION_MEDIA_TYPE,
+        )
+
+    @router.api_route(
+        "/opensearch.xml",
+        methods=["GET", "HEAD"],
+        name="opds12_opensearch",
+        response_class=Response,
+    )
+    def opensearch_description(
+        request: Request,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
+    ) -> Response:
+        reject_parameters(request, ("cursor", "limit", "offset"))
+        selected = catalog.revision(revision)
+        return atom_response(
+            request,
+            document=opensearch_description_document(
+                request,
+                config,
+                selected,
+            ),
+            media_type=OPEN_SEARCH_MEDIA_TYPE,
         )
 
     def recent_feed_response(
@@ -81,7 +302,7 @@ def create_opds12_router(
         endpoint: str,
         title: str,
     ) -> Response:
-        reject_pagination(request)
+        reject_parameters(request, ("cursor", "limit", "offset"))
         window = catalog.recent_publications(order=order, revision=revision)
         return atom_response(
             request,
@@ -129,6 +350,29 @@ def create_opds12_router(
             revision=revision,
             endpoint="opds12_recent_downloaded",
             title="Recently Downloaded",
+        )
+
+    @router.api_route(
+        "/publications/{publication_id}",
+        methods=["GET", "HEAD"],
+        name="opds12_publication",
+        response_class=Response,
+    )
+    def publication_entry(
+        request: Request,
+        publication_id: str,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
+    ) -> Response:
+        selection = catalog.publication(publication_id, revision=revision)
+        return atom_response(
+            request,
+            document=publication_entry_document(
+                request,
+                config,
+                selection.publication,
+                selection.revision.revision,
+            ),
+            media_type=OPDS12_ENTRY_MEDIA_TYPE,
         )
 
     def artifact_response(
