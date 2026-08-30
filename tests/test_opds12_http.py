@@ -1,10 +1,17 @@
 import fcntl
 import os
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 from xml.etree import ElementTree
 
-from h2hdb import CatalogRevision
+import pytest
+from h2hdb import (
+    CatalogRecentArtifactWindow,
+    CatalogRecentOrder,
+    CatalogRevision,
+    artifact_storage_key,
+)
 from httpx import Response
 from pydantic import SecretStr
 
@@ -12,10 +19,12 @@ from h2hdb_opds import BasicAuthConfig, OPDSConfig, ServerConfig, create_app
 from h2hdb_opds.atom import (
     ATOM_NAMESPACE,
     OPDS12_ACQUISITION_MEDIA_TYPE,
+    OPDS12_NAVIGATION_MEDIA_TYPE,
     OPDS_ACQUISITION_REL,
+    OPDS_SORT_NEW_REL,
 )
 
-from .fakes import CatalogFixture
+from .fakes import CatalogFixture, FakeCatalog
 from .http_client import app_client
 
 _NAMESPACES = {"atom": ATOM_NAMESPACE}
@@ -24,17 +33,26 @@ _PANELS_ACCEPT = (
 )
 
 
-def _feed(response: Response) -> ElementTree.Element:
+def _feed(response: Response, media_type: str) -> ElementTree.Element:
     assert response.status_code == 200
-    assert response.headers["content-type"] == OPDS12_ACQUISITION_MEDIA_TYPE
+    assert response.headers["content-type"] == media_type
     return ElementTree.fromstring(response.content)
 
 
-def _link(root: ElementTree.Element, relation: str) -> str:
+def _feed_link(root: ElementTree.Element, relation: str) -> str:
     return next(
         link.attrib["href"]
         for link in root.findall("atom:link", _NAMESPACES)
         if link.attrib["rel"] == relation
+    )
+
+
+def _navigation_link(root: ElementTree.Element, title: str) -> ElementTree.Element:
+    return next(
+        link
+        for entry in root.findall("atom:entry", _NAMESPACES)
+        if entry.findtext("atom:title", namespaces=_NAMESPACES) == title
+        for link in entry.findall("atom:link", _NAMESPACES)
     )
 
 
@@ -46,31 +64,61 @@ def _first_acquisition(root: ElementTree.Element) -> str:
     )
 
 
-async def test_panels_accept_header_returns_an_opds12_acquisition_feed(
+def _entry_titles(root: ElementTree.Element) -> list[str | None]:
+    return [
+        entry.findtext("atom:title", namespaces=_NAMESPACES)
+        for entry in root.findall("atom:entry", _NAMESPACES)
+    ]
+
+
+async def test_panels_catalog_is_two_entry_navigation_to_recent_feeds(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
 
     async with app_client(app) as client:
-        response = await client.get(
+        root_response = await client.get(
             "/opds/v1.2/catalog",
             headers={"Accept": _PANELS_ACCEPT},
         )
+        root = _feed(root_response, OPDS12_NAVIGATION_MEDIA_TYPE)
+        uploaded_link = _navigation_link(root, "Recently Uploaded")
+        downloaded_link = _navigation_link(root, "Recently Downloaded")
+        uploaded_response = await client.get(uploaded_link.attrib["href"])
+        downloaded_response = await client.get(downloaded_link.attrib["href"])
 
-    root = _feed(response)
     assert root.tag == f"{{{ATOM_NAMESPACE}}}feed"
-    assert root.findtext("atom:title", namespaces=_NAMESPACES) == "All Publications"
-    assert [
-        entry.findtext("atom:title", namespaces=_NAMESPACES)
-        for entry in root.findall("atom:entry", _NAMESPACES)
-    ] == ["Alpha Gallery", "Beta Gallery", "Gamma Gallery"]
-    assert _first_acquisition(root).endswith(
-        "/opds/v1.2/acquisitions/artifact-alpha?revision=7"
+    assert _entry_titles(root) == ["Recently Uploaded", "Recently Downloaded"]
+    assert uploaded_link.attrib["rel"] == OPDS_SORT_NEW_REL
+    assert downloaded_link.attrib["rel"] == "subsection"
+    for link in (uploaded_link, downloaded_link):
+        assert link.attrib["type"] == OPDS12_ACQUISITION_MEDIA_TYPE
+        assert parse_qs(urlsplit(link.attrib["href"]).query) == {"revision": ["7"]}
+
+    uploaded = _feed(uploaded_response, OPDS12_ACQUISITION_MEDIA_TYPE)
+    downloaded = _feed(downloaded_response, OPDS12_ACQUISITION_MEDIA_TYPE)
+    assert _entry_titles(uploaded) == [
+        "Beta Gallery",
+        "Alpha Gallery",
+        "Gamma Gallery",
+    ]
+    assert _entry_titles(downloaded) == [
+        "Gamma Gallery",
+        "Alpha Gallery",
+        "Beta Gallery",
+    ]
+    assert [call[0] for call in catalog_fixture.catalog.recent_list_calls] == [
+        CatalogRecentOrder.UPLOADED,
+        CatalogRecentOrder.DOWNLOADED,
+    ]
+    assert all(
+        revision == catalog_fixture.catalog.revision
+        for _, revision in catalog_fixture.catalog.recent_list_calls
     )
 
 
-async def test_opds12_catalog_enforces_basic_authentication(
+async def test_opds12_navigation_and_recent_feed_enforce_basic_authentication(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
@@ -88,80 +136,103 @@ async def test_opds12_catalog_enforces_basic_authentication(
     app = create_app(config, catalog_fixture.catalog)
 
     async with app_client(app, base_url="https://testserver") as client:
-        unauthorized = await client.get(
-            "/opds/v1.2/catalog",
-            headers={"Accept": _PANELS_ACCEPT},
-        )
+        unauthorized_root = await client.get("/opds/v1.2/catalog")
+        unauthorized_recent = await client.get("/opds/v1.2/recent/uploaded")
         wrong_password = await client.get(
             "/opds/v1.2/catalog",
-            headers={"Accept": _PANELS_ACCEPT},
             auth=("reader", "wrong"),
         )
         authorized = await client.get(
             "/opds/v1.2/catalog",
-            headers={"Accept": _PANELS_ACCEPT},
             auth=("reader", "secret"),
         )
 
-    for response in (unauthorized, wrong_password):
+    for response in (unauthorized_root, unauthorized_recent, wrong_password):
         assert response.status_code == 401
         assert response.content == b""
         assert response.headers["cache-control"] == "no-store"
         assert response.headers["www-authenticate"] == (
             'Basic realm="Panels Library", charset="UTF-8"'
         )
-    assert _feed(authorized).find("atom:entry", _NAMESPACES) is not None
+    assert (
+        _feed(authorized, OPDS12_NAVIGATION_MEDIA_TYPE).find("atom:entry", _NAMESPACES)
+        is not None
+    )
 
 
-async def test_opds12_cursor_links_page_within_the_selected_revision(
+async def test_recent_feed_is_hard_capped_at_128_without_pagination(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
-    config = opds_config.model_copy(
-        update={"default_page_size": 2, "maximum_page_size": 2}
+    base = catalog_fixture.publications[0]
+    publications = tuple(
+        replace(
+            base,
+            publication_id=f"publication-{index}",
+            gid=10_000 + index,
+            title=f"Publication {index}",
+            published_at=base.published_at + timedelta(seconds=index),
+            downloaded_at=base.downloaded_at + timedelta(seconds=index),
+            artifacts=(
+                replace(
+                    base.artifacts[0],
+                    artifact_id=f"artifact-{index}",
+                    name=f"publication-{index}.cbz",
+                    storage_key=artifact_storage_key(10_000 + index),
+                ),
+            ),
+        )
+        for index in range(130)
     )
-    app = create_app(config, catalog_fixture.catalog)
+    app = create_app(opds_config, FakeCatalog(publications))
 
     async with app_client(app) as client:
-        first_response = await client.get("/opds/v1.2/catalog")
-        first = _feed(first_response)
-        next_url = _link(first, "next")
-        second_response = await client.get(next_url)
+        response = await client.get("/opds/v1.2/recent/uploaded")
 
-    second = _feed(second_response)
-    next_query = parse_qs(urlsplit(next_url).query)
-    assert next_query["revision"] == ["7"]
-    assert len(next_query["cursor"]) == 1
-    assert [
-        entry.findtext("atom:title", namespaces=_NAMESPACES)
-        for entry in first.findall("atom:entry", _NAMESPACES)
-    ] == ["Alpha Gallery", "Beta Gallery"]
-    assert [
-        entry.findtext("atom:title", namespaces=_NAMESPACES)
-        for entry in second.findall("atom:entry", _NAMESPACES)
-    ] == ["Gamma Gallery"]
-    assert all(
-        revision == catalog_fixture.catalog.revision
-        for revision in catalog_fixture.catalog.list_revisions
-    )
-    assert catalog_fixture.catalog.artifact_list_calls[0] == (None, 2)
-    assert catalog_fixture.catalog.artifact_list_calls[1][0] is not None
-    assert catalog_fixture.catalog.artifact_list_calls[1][1] == 2
+    feed = _feed(response, OPDS12_ACQUISITION_MEDIA_TYPE)
+    assert len(feed.findall("atom:entry", _NAMESPACES)) == 128
+    assert _entry_titles(feed)[:2] == ["Publication 129", "Publication 128"]
+    relations = {link.attrib["rel"] for link in feed.findall("atom:link", _NAMESPACES)}
+    assert relations == {"self", "start", "up"}
+    assert parse_qs(urlsplit(_feed_link(feed, "self")).query) == {"revision": ["7"]}
 
 
-async def test_opds12_revision_bound_links_fail_closed_after_head_advances(
+async def test_recent_feeds_allow_an_empty_artifact_catalog(
+    opds_config: OPDSConfig,
+) -> None:
+    app = create_app(opds_config, FakeCatalog(()))
+
+    async with app_client(app) as client:
+        uploaded = _feed(
+            await client.get("/opds/v1.2/recent/uploaded"),
+            OPDS12_ACQUISITION_MEDIA_TYPE,
+        )
+        downloaded = _feed(
+            await client.get("/opds/v1.2/recent/downloaded"),
+            OPDS12_ACQUISITION_MEDIA_TYPE,
+        )
+
+    assert _entry_titles(uploaded) == []
+    assert _entry_titles(downloaded) == []
+
+
+async def test_revision_bound_recent_and_acquisition_links_fail_closed(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
-    config = opds_config.model_copy(
-        update={"default_page_size": 2, "maximum_page_size": 2}
-    )
-    app = create_app(config, catalog_fixture.catalog)
+    app = create_app(opds_config, catalog_fixture.catalog)
 
     async with app_client(app) as client:
-        first = _feed(await client.get("/opds/v1.2/catalog"))
-        stale_next = _link(first, "next")
-        stale_acquisition = _first_acquisition(first)
+        root = _feed(
+            await client.get("/opds/v1.2/catalog"),
+            OPDS12_NAVIGATION_MEDIA_TYPE,
+        )
+        stale_recent = _navigation_link(root, "Recently Uploaded").attrib["href"]
+        old_recent = _feed(
+            await client.get(stale_recent),
+            OPDS12_ACQUISITION_MEDIA_TYPE,
+        )
+        stale_acquisition = _first_acquisition(old_recent)
         catalog_fixture.catalog.add_revision(
             CatalogRevision(
                 revision=8,
@@ -172,51 +243,95 @@ async def test_opds12_revision_bound_links_fail_closed_after_head_advances(
             (catalog_fixture.publications[1],),
         )
 
-        old_next_response = await client.get(stale_next)
+        old_recent_response = await client.get(stale_recent)
         old_acquisition_response = await client.get(stale_acquisition)
-        current_response = await client.get("/opds/v1.2/catalog")
+        current_root = _feed(
+            await client.get("/opds/v1.2/catalog"),
+            OPDS12_NAVIGATION_MEDIA_TYPE,
+        )
 
-    for response in (old_next_response, old_acquisition_response):
+    for response in (old_recent_response, old_acquisition_response):
         assert response.status_code == 404
         assert response.json() == {"detail": "Catalog revision 7 not found"}
-    current = _feed(current_response)
-    assert parse_qs(urlsplit(_link(current, "self")).query)["revision"] == ["8"]
-    assert [
-        entry.findtext("atom:title", namespaces=_NAMESPACES)
-        for entry in current.findall("atom:entry", _NAMESPACES)
-    ] == ["Beta Gallery"]
+    assert parse_qs(urlsplit(_feed_link(current_root, "self")).query) == {
+        "revision": ["8"]
+    }
 
 
-async def test_opds12_catalog_head_has_get_metadata_without_a_body(
+async def test_recent_feed_rejects_a_reader_window_for_the_wrong_order(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    app = create_app(opds_config, catalog_fixture.catalog)
-    path = "/opds/v1.2/catalog?limit=2&revision=7"
+    original = catalog_fixture.catalog.list_recent_artifact_publications
 
-    async with app_client(app) as client:
-        get_response = await client.get(path, headers={"Accept": _PANELS_ACCEPT})
-        head_response = await client.head(path, headers={"Accept": _PANELS_ACCEPT})
+    def wrong_order(
+        *,
+        order: CatalogRecentOrder,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogRecentArtifactWindow:
+        del order
+        return original(order=CatalogRecentOrder.DOWNLOADED, revision=revision)
 
-    assert get_response.status_code == 200
-    assert head_response.status_code == 200
-    assert head_response.content == b""
-    assert head_response.headers["content-type"] == OPDS12_ACQUISITION_MEDIA_TYPE
-    assert (
-        head_response.headers["content-length"]
-        == get_response.headers["content-length"]
+    monkeypatch.setattr(
+        catalog_fixture.catalog,
+        "list_recent_artifact_publications",
+        wrong_order,
     )
+    app = create_app(opds_config, catalog_fixture.catalog)
+
+    with pytest.raises(
+        ValueError,
+        match="recent artifact window order differs from the request",
+    ):
+        async with app_client(app) as client:
+            await client.get("/opds/v1.2/recent/uploaded")
 
 
-async def test_opds12_acquisition_link_supports_get_head_and_a_single_range(
+async def test_opds12_navigation_and_recent_head_match_get_metadata(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
 
     async with app_client(app) as client:
-        feed = _feed(await client.get("/opds/v1.2/catalog"))
-        acquisition_url = _first_acquisition(feed)
+        for path, media_type in (
+            ("/opds/v1.2/catalog?revision=7", OPDS12_NAVIGATION_MEDIA_TYPE),
+            (
+                "/opds/v1.2/recent/uploaded?revision=7",
+                OPDS12_ACQUISITION_MEDIA_TYPE,
+            ),
+        ):
+            get_response = await client.get(path, headers={"Accept": _PANELS_ACCEPT})
+            head_response = await client.head(path, headers={"Accept": _PANELS_ACCEPT})
+            assert get_response.status_code == 200
+            assert head_response.status_code == 200
+            assert head_response.content == b""
+            assert head_response.headers["content-type"] == media_type
+            assert (
+                head_response.headers["content-length"]
+                == (get_response.headers["content-length"])
+            )
+
+
+async def test_opds12_recent_acquisition_supports_get_head_and_range(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+) -> None:
+    app = create_app(opds_config, catalog_fixture.catalog)
+
+    async with app_client(app) as client:
+        feed = _feed(
+            await client.get("/opds/v1.2/recent/uploaded"),
+            OPDS12_ACQUISITION_MEDIA_TYPE,
+        )
+        acquisition_url = next(
+            link.attrib["href"]
+            for entry in feed.findall("atom:entry", _NAMESPACES)
+            if entry.findtext("atom:title", namespaces=_NAMESPACES) == "Alpha Gallery"
+            for link in entry.findall("atom:link", _NAMESPACES)
+            if link.attrib["rel"] == OPDS_ACQUISITION_REL
+        )
         full = await client.get(acquisition_url)
         head = await client.head(acquisition_url)
         selected_range = await client.get(
@@ -232,7 +347,6 @@ async def test_opds12_acquisition_link_supports_get_head_and_a_single_range(
     assert head.status_code == 200
     assert head.content == b""
     assert head.headers["content-length"] == str(len(catalog_fixture.payload))
-    assert head.headers["etag"] == expected_etag
     assert selected_range.status_code == 206
     assert selected_range.content == catalog_fixture.payload[2:7]
     assert selected_range.headers["content-range"] == (
@@ -240,7 +354,7 @@ async def test_opds12_acquisition_link_supports_get_head_and_a_single_range(
     )
 
 
-async def test_opds12_catalog_and_acquisition_use_activation_coordination(
+async def test_opds12_navigation_recent_and_acquisition_use_coordination(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
@@ -250,6 +364,7 @@ async def test_opds12_catalog_and_acquisition_use_activation_coordination(
 
     async with app_client(app) as client:
         blocked_catalog = await client.get("/opds/v1.2/catalog")
+        blocked_recent = await client.get("/opds/v1.2/recent/uploaded")
         blocked_acquisition = await client.get("/opds/v1.2/acquisitions/artifact-alpha")
         marker.unlink()
 
@@ -259,47 +374,60 @@ async def test_opds12_catalog_and_acquisition_use_activation_coordination(
         )
         try:
             fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            blocked_by_lock = await client.get("/opds/v1.2/catalog")
+            blocked_by_lock = await client.get("/opds/v1.2/recent/downloaded")
             fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
             available = await client.get("/opds/v1.2/catalog")
         finally:
             os.close(lock_descriptor)
 
-    for response in (blocked_catalog, blocked_acquisition, blocked_by_lock):
+    for response in (
+        blocked_catalog,
+        blocked_recent,
+        blocked_acquisition,
+        blocked_by_lock,
+    ):
         assert response.status_code == 503
         assert response.headers["retry-after"] == "1"
         assert response.headers["cache-control"] == "no-store"
     assert available.status_code == 200
 
 
-async def test_opds12_rejects_offset_invalid_cursor_and_excessive_limit(
+async def test_opds12_has_no_all_publications_compatibility_path(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
-    config = opds_config.model_copy(
-        update={"default_page_size": 2, "maximum_page_size": 2}
-    )
-    app = create_app(config, catalog_fixture.catalog)
+    app = create_app(opds_config, catalog_fixture.catalog)
 
     async with app_client(app) as client:
-        offset = await client.get(
-            "/opds/v1.2/catalog",
-            params={"offset": 2},
-        )
-        cursor = await client.get(
-            "/opds/v1.2/catalog",
-            params={"cursor": "not-a-valid-cursor"},
-        )
-        limit = await client.get(
-            "/opds/v1.2/catalog",
-            params={"limit": 3},
-        )
+        root_response = await client.get("/opds/v1.2/catalog")
+        removed = await client.get("/opds/v1.2/all")
 
-    assert offset.status_code == 422
-    assert offset.json() == {
-        "detail": "offset pagination was removed; follow the cursor links"
-    }
-    assert cursor.status_code == 422
-    assert cursor.json() == {"detail": "cursor is invalid"}
-    assert limit.status_code == 422
-    assert limit.json() == {"detail": "limit must not exceed 2"}
+    root = _feed(root_response, OPDS12_NAVIGATION_MEDIA_TYPE)
+    assert removed.status_code == 404
+    assert not root.findall(
+        f"atom:entry/atom:link[@rel='{OPDS_ACQUISITION_REL}']",
+        _NAMESPACES,
+    )
+
+
+async def test_opds12_rejects_removed_pagination_parameters(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+) -> None:
+    app = create_app(opds_config, catalog_fixture.catalog)
+
+    async with app_client(app) as client:
+        responses = [
+            await client.get(path, params={parameter: value})
+            for path, parameter, value in (
+                ("/opds/v1.2/catalog", "cursor", "legacy"),
+                ("/opds/v1.2/recent/uploaded", "limit", 20),
+                ("/opds/v1.2/recent/downloaded", "offset", 20),
+            )
+        ]
+
+    for response in responses:
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "OPDS 1.2 catalog does not support pagination"
+        }

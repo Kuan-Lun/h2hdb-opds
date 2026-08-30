@@ -12,6 +12,8 @@ from h2hdb import (
     CatalogCursorError,
     CatalogPage,
     CatalogPublication,
+    CatalogRecentArtifactWindow,
+    CatalogRecentOrder,
     CatalogRevision,
     CatalogRevisionNotFoundError,
     CatalogSubject,
@@ -32,6 +34,9 @@ class FakeCatalog:
         self.list_calls: list[tuple[str | None, int, int]] = []
         self.list_revisions: list[CatalogRevision | int | None] = []
         self.artifact_list_calls: list[tuple[CatalogArtifactCursor | None, int]] = []
+        self.recent_list_calls: list[
+            tuple[CatalogRecentOrder, CatalogRevision | int | None]
+        ] = []
         self.publication_revisions: list[CatalogRevision | int | None] = []
         self.artifact_revisions: list[CatalogRevision | int | None] = []
 
@@ -170,6 +175,36 @@ class FakeCatalog:
             None,
         )
 
+    def list_recent_artifact_publications(
+        self,
+        *,
+        order: CatalogRecentOrder,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogRecentArtifactWindow:
+        self.recent_list_calls.append((order, revision))
+        selected_revision = self._revision_at(revision)
+        publications = tuple(
+            sorted(
+                (
+                    publication
+                    for publication in self.publications
+                    if publication.artifacts
+                ),
+                key=lambda publication: (
+                    publication.published_at
+                    if order is CatalogRecentOrder.UPLOADED
+                    else publication.downloaded_at,
+                    publication.gid,
+                ),
+                reverse=True,
+            )[:128]
+        )
+        return CatalogRecentArtifactWindow(
+            revision=selected_revision,
+            order=order,
+            publications=publications,
+        )
+
     def get_publications_by_artifact_names(
         self,
         names: Sequence[str],
@@ -220,6 +255,7 @@ def build_catalog_fixture(tmp_path: Path) -> CatalogFixture:
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_bytes(payload)
     timestamp = datetime(2026, 8, 5, 12, 30, 45, tzinfo=UTC)
+    alpha_downloaded = datetime(2026, 8, 5, 15, 0, tzinfo=UTC)
     artifact = CatalogArtifact(
         artifact_id="artifact-alpha",
         name="alpha.cbz",
@@ -256,6 +292,7 @@ def build_catalog_fixture(tmp_path: Path) -> CatalogFixture:
             summary="A cobalt adventure",
             language="en",
             published_at=timestamp,
+            downloaded_at=alpha_downloaded,
             modified_at=timestamp,
             contributors=(CatalogContributor(name="Alice", role="artist"),),
             subjects=(
@@ -273,7 +310,8 @@ def build_catalog_fixture(tmp_path: Path) -> CatalogFixture:
             sort_title="beta gallery",
             summary="A quiet archive",
             language="ja",
-            published_at=timestamp,
+            published_at=datetime(2026, 8, 5, 13, 0, tzinfo=UTC),
+            downloaded_at=datetime(2026, 8, 5, 14, 0, tzinfo=UTC),
             modified_at=timestamp,
             artifacts=(beta_artifact,),
         ),
@@ -286,7 +324,8 @@ def build_catalog_fixture(tmp_path: Path) -> CatalogFixture:
             sort_title="gamma gallery",
             summary="Another cobalt record",
             language="zh",
-            published_at=timestamp,
+            published_at=datetime(2026, 8, 5, 11, 0, tzinfo=UTC),
+            downloaded_at=datetime(2026, 8, 5, 16, 0, tzinfo=UTC),
             modified_at=timestamp,
             artifacts=(gamma_artifact,),
         ),

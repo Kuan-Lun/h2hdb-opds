@@ -2,9 +2,13 @@ __all__ = [
     "ATOM_NAMESPACE",
     "DC_TERMS_NAMESPACE",
     "OPDS12_ACQUISITION_MEDIA_TYPE",
+    "OPDS12_NAVIGATION_MEDIA_TYPE",
+    "OPDS12_RECENT_LIMIT",
     "OPDS_ACQUISITION_REL",
     "OPDS_NAMESPACE",
-    "acquisition_feed_document",
+    "OPDS_SORT_NEW_REL",
+    "navigation_feed_document",
+    "recent_acquisition_feed_document",
 ]
 
 import re
@@ -15,13 +19,12 @@ from xml.etree import ElementTree
 
 from fastapi import Request
 from h2hdb import (
-    CatalogArtifactCursor,
-    CatalogArtifactPage,
     CatalogPublication,
+    CatalogRecentArtifactWindow,
+    CatalogRevision,
 )
 
 from .config import OPDSConfig
-from .cursor import encode_artifact_cursor
 from .language import normalize_bcp47
 from .urls import external_url
 
@@ -31,7 +34,12 @@ OPDS_NAMESPACE = "http://opds-spec.org/2010/catalog"
 OPDS12_ACQUISITION_MEDIA_TYPE = (
     "application/atom+xml;profile=opds-catalog;kind=acquisition"
 )
+OPDS12_NAVIGATION_MEDIA_TYPE = (
+    "application/atom+xml;profile=opds-catalog;kind=navigation"
+)
 OPDS_ACQUISITION_REL = "http://opds-spec.org/acquisition"
+OPDS_SORT_NEW_REL = "http://opds-spec.org/sort/new"
+OPDS12_RECENT_LIMIT = 128
 
 _CREATOR_ROLES = frozenset({"artist", "author", "illustrator"})
 _INVALID_XML10_CHARACTER = re.compile(
@@ -79,20 +87,6 @@ def _text_element(
 
 def _url_with_query(url: str, parameters: dict[str, str | int]) -> str:
     return f"{url}?{urlencode(parameters)}"
-
-
-def _page_url(
-    base_url: str,
-    page: CatalogArtifactPage,
-    cursor: CatalogArtifactCursor | None,
-) -> str:
-    parameters: dict[str, str | int] = {
-        "limit": page.limit,
-        "revision": page.revision.revision,
-    }
-    if cursor is not None:
-        parameters["cursor"] = encode_artifact_cursor(cursor)
-    return _url_with_query(base_url, parameters)
 
 
 def _link(
@@ -211,57 +205,168 @@ def _publication_entry(
     return entry
 
 
-def acquisition_feed_document(
+def _feed(
+    *,
+    identifier: str,
+    title: str,
+    updated: datetime,
+    author: str,
+) -> ElementTree.Element:
+    feed = ElementTree.Element(_atom("feed"), {"xmlns:opds": OPDS_NAMESPACE})
+    _text_element(feed, "id", identifier)
+    _text_element(feed, "title", title)
+    _text_element(feed, "updated", _format_datetime(updated))
+    _person(feed, "author", author)
+    return feed
+
+
+def _serialized(feed: ElementTree.Element) -> bytes:
+    return cast(
+        bytes,
+        ElementTree.tostring(feed, encoding="utf-8", xml_declaration=True),
+    )
+
+
+def _revision_url(
     request: Request,
     config: OPDSConfig,
-    page: CatalogArtifactPage,
+    endpoint: str,
+    revision: int,
+) -> str:
+    return _url_with_query(
+        external_url(request, config, endpoint),
+        {"revision": revision},
+    )
+
+
+def _navigation_entry(
     *,
-    cursor: CatalogArtifactCursor | None,
-    endpoint: str = "opds12_catalog",
-    acquisition_endpoint: str = "opds12_acquire_artifact",
-    title: str = "All Publications",
+    title: str,
+    identifier: str,
+    description: str,
+    updated: datetime,
+    relation: str,
+    href: str,
+) -> ElementTree.Element:
+    entry = ElementTree.Element(_atom("entry"))
+    _text_element(entry, "title", title)
+    _text_element(entry, "id", identifier)
+    _text_element(entry, "updated", _format_datetime(updated))
+    _text_element(entry, "content", description, attributes={"type": "text"})
+    _link(
+        entry,
+        relation=relation,
+        href=href,
+        media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
+        title=title,
+    )
+    return entry
+
+
+def navigation_feed_document(
+    request: Request,
+    config: OPDSConfig,
+    revision: CatalogRevision,
 ) -> bytes:
-    """Serialize one revision-pinned page as an OPDS 1.2 acquisition feed."""
-    revision = page.revision.revision
-    for selected_cursor in (cursor, page.next_cursor):
-        if selected_cursor is not None and selected_cursor.revision != revision:
-            raise ValueError("OPDS 1.2 pagination cursor does not match page revision")
-
-    feed_url = external_url(request, config, endpoint)
-    feed = ElementTree.Element(_atom("feed"), {"xmlns:opds": OPDS_NAMESPACE})
-    _text_element(feed, "id", feed_url)
-    _text_element(feed, "title", title)
-    _text_element(feed, "updated", _format_datetime(page.revision.published_at))
-    _person(feed, "author", config.title)
-
-    first_url = _page_url(feed_url, page, None)
+    """Serialize the two-entry OPDS 1.2 catalog root."""
+    selected_revision = revision.revision
+    feed_url = external_url(request, config, "opds12_catalog")
+    self_url = _url_with_query(feed_url, {"revision": selected_revision})
+    feed = _feed(
+        identifier=feed_url,
+        title=config.title,
+        updated=revision.published_at,
+        author=config.title,
+    )
     _link(
         feed,
         relation="self",
-        href=_page_url(feed_url, page, cursor),
+        href=self_url,
+        media_type=OPDS12_NAVIGATION_MEDIA_TYPE,
+    )
+    _link(
+        feed,
+        relation="start",
+        href=self_url,
+        media_type=OPDS12_NAVIGATION_MEDIA_TYPE,
+    )
+    feed.append(
+        _navigation_entry(
+            title="Recently Uploaded",
+            identifier="urn:h2hdb:navigation:recently-uploaded",
+            description="Up to 128 publications with the latest source upload times.",
+            updated=revision.published_at,
+            relation=OPDS_SORT_NEW_REL,
+            href=_revision_url(
+                request,
+                config,
+                "opds12_recent_uploaded",
+                selected_revision,
+            ),
+        )
+    )
+    feed.append(
+        _navigation_entry(
+            title="Recently Downloaded",
+            identifier="urn:h2hdb:navigation:recently-downloaded",
+            description=(
+                "Up to 128 publications with the latest source download times."
+            ),
+            updated=revision.published_at,
+            relation="subsection",
+            href=_revision_url(
+                request,
+                config,
+                "opds12_recent_downloaded",
+                selected_revision,
+            ),
+        )
+    )
+    return _serialized(feed)
+
+
+def recent_acquisition_feed_document(
+    request: Request,
+    config: OPDSConfig,
+    window: CatalogRecentArtifactWindow,
+    *,
+    endpoint: str,
+    title: str,
+    acquisition_endpoint: str = "opds12_acquire_artifact",
+) -> bytes:
+    """Serialize one complete, revision-pinned, hard-capped recent window."""
+    if len(window.publications) > OPDS12_RECENT_LIMIT:
+        raise ValueError("OPDS 1.2 recent feed exceeds its hard limit")
+
+    revision = window.revision.revision
+    feed_url = external_url(request, config, endpoint)
+    root_url = _revision_url(request, config, "opds12_catalog", revision)
+    feed = _feed(
+        identifier=feed_url,
+        title=title,
+        updated=window.revision.published_at,
+        author=config.title,
+    )
+    _link(
+        feed,
+        relation="self",
+        href=_url_with_query(feed_url, {"revision": revision}),
         media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
     )
     _link(
         feed,
         relation="start",
-        href=first_url,
-        media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
+        href=root_url,
+        media_type=OPDS12_NAVIGATION_MEDIA_TYPE,
     )
     _link(
         feed,
-        relation="first",
-        href=first_url,
-        media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
+        relation="up",
+        href=root_url,
+        media_type=OPDS12_NAVIGATION_MEDIA_TYPE,
     )
-    if page.next_cursor is not None:
-        _link(
-            feed,
-            relation="next",
-            href=_page_url(feed_url, page, page.next_cursor),
-            media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
-        )
 
-    for publication in page.publications:
+    for publication in window.publications:
         feed.append(
             _publication_entry(
                 publication,
@@ -271,8 +376,4 @@ def acquisition_feed_document(
                 acquisition_endpoint=acquisition_endpoint,
             )
         )
-
-    return cast(
-        bytes,
-        ElementTree.tostring(feed, encoding="utf-8", xml_declaration=True),
-    )
+    return _serialized(feed)

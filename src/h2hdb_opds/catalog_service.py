@@ -22,6 +22,8 @@ from h2hdb import (
     CatalogCursorError,
     CatalogPublication,
     CatalogReader,
+    CatalogRecentArtifactWindow,
+    CatalogRecentOrder,
     CatalogRevision,
     CatalogRevisionNotFoundError,
 )
@@ -165,6 +167,25 @@ class CatalogService:
         if publication is None or not publication.artifacts:
             raise PublicationUnavailable(publication_id)
         return PublicationSelection(publication=publication, revision=selected)
+
+    def recent_publications(
+        self,
+        *,
+        order: CatalogRecentOrder,
+        revision: int | None,
+    ) -> CatalogRecentArtifactWindow:
+        with self._library_reads.read():
+            selected = self._resolve_revision(revision)
+            with self._pinned_revision_read(selected):
+                window = self._reader().list_recent_artifact_publications(
+                    order=order,
+                    revision=selected,
+                )
+        if window.revision != selected:
+            raise RevisionUnavailable(selected.revision)
+        if window.order is not order:
+            raise ValueError("recent artifact window order differs from the request")
+        return window
 
     @contextmanager
     def artifact_read(

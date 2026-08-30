@@ -156,7 +156,7 @@
 ### Ownership boundary
 
 本 repository 擁有 FastAPI/ASGI integration、OPDS models/serialization、
-navigation、有界 publication pagination、authentication、acquisition、
+navigation、有界 recent windows、publication pagination、authentication、acquisition、
 Range 與 conditional HTTP response。OPDS 2 search 在 core 尚無 bounded
 index 時必須維持明確 501 stub；OPDS 1.2 不得廣告 search、artwork、OPDS-PSE、
 facet 或 standalone entry 等尚無 bounded authority 的能力。
@@ -177,11 +177,13 @@ path 均不得呼叫 `migrate()`。
   `opds12.py`/`atom.py` 與 `opds2.py`/`serialization.py` 分別負責協定 routes
   與 serialization；`auth.py` 負責 Basic auth 與 OPDS 2 authentication
   document；`acquisition.py` 負責兩版共用的 artifact responses。
-- OPDS 1.2 catalog 是單一 paginated Atom acquisition feed，使用
-  `application/atom+xml;profile=opds-catalog;kind=acquisition`；每個 feed
-  必須有穩定 id、title、updated、author 及 revision-bound pagination links，
-  每個 entry 必須有穩定 id、title、updated、text content 與至少一個
-  acquisition link。OPDS 2 feed 使用 `application/opds+json`；standalone
+- OPDS 1.2 catalog root 是 Atom navigation feed，只包含 `Recently Uploaded`
+  與 `Recently Downloaded` 兩個 entry；它們分別連到 core authoritative order
+  提供的固定最多 128 筆單頁 acquisition feed。Recent feeds 不接受 limit、
+  cursor 或 offset，不得產生 next、first、crawlable 或 All Publications
+  compatibility path。每個 feed 必須有穩定 id、title、updated 與 author；
+  每個 acquisition entry 必須有穩定 id、title、updated、text content 與至少
+  一個 acquisition link。OPDS 2 feed 使用 `application/opds+json`；standalone
   publication 使用 `application/opds-publication+json`。
 - acquisition ETag 是 ingest activation 已驗證並封存的 strong SHA-256
   validator。每次 request 不得重新 hash 或複製整個 CBZ。RFC
@@ -209,10 +211,12 @@ path 均不得呼叫 `migrate()`。
   Basic auth 只允許 effective HTTPS：local TLS 或明確 trusted
   TLS-terminating proxy。credential comparison 使用
   `secrets.compare_digest`。
-- 兩版 listing 使用 core pinned `list_artifact_publications` seek cursor，總數
-  使用 immutable revision `artifact_count`，確保每個 serialized publication
-  都有 acquisition link；不得對 artifact feed 使用 `OFFSET`、逐頁
-  `COUNT(*)` 或 protocol-specific durable pagination state。
+- OPDS 1.2 recent feeds 只能使用 core pinned
+  `list_recent_artifact_publications` hard-capped windows；OPDS 2 listing 使用
+  core pinned `list_artifact_publications` seek cursor與 immutable revision
+  `artifact_count`。兩者都必須確保每個 serialized publication 有 acquisition
+  link；不得使用 `OFFSET`、逐頁 `COUNT(*)`、OPDS-side sort 或
+  protocol-specific durable pagination state。
 - 所有 feed、publication、pagination 與 acquisition link 都攜帶 selected
   revision。省略 revision 時選 current head；明確 revision 只有等於 current
   head 才接受，其他回 404。不得將 stale revision 替換成 current data，或在
