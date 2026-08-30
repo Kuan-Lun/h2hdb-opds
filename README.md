@@ -89,9 +89,10 @@ request and must be detected by an explicit integrity audit. Transactional
 recovery handles orderly stop, process loss, and power interruption; damaged
 storage still requires a verified source or backup for reconstruction.
 
-`coordination_root` is a separate read-only mount containing only the permanent
-regular file `publication.lock` and an optional `ACTIVATING` marker. The two
-configured roots must be distinct and non-overlapping. Every
+`coordination_root` is a separate read-only mount of the canonical library
+parent's `.h2hdb-coordination` sibling. It contains only the permanent regular
+file `publication.lock` and an optional `ACTIVATING` marker. The two configured
+roots must be distinct and non-overlapping. Every
 catalog response takes a nonblocking shared `flock`; contention or any marker
 entry returns 503 with `Retry-After`. Acquisition holds that lock while it pins
 the current revision, opens and validates the CBZ descriptor, and revalidates
@@ -100,18 +101,20 @@ later activation atomically replaces the pathname. A marker left by power loss
 or writer termination intentionally keeps OPDS fail-closed until ingest
 reconciles the activation.
 
-For Docker Compose, mount only the public and coordination subtrees read-only:
+For Docker Compose, mount only the public `current` and sibling coordination
+subtrees read-only:
 
 ```yaml
 volumes:
   - /volume1/h2hdb/comics/current:/srv/h2hdb/library:ro
-  - /volume1/h2hdb/comics/.h2hdb-state/coordination:/srv/h2hdb/coordination:ro
+  - /volume1/h2hdb/comics/.h2hdb-coordination:/srv/h2hdb/coordination:ro
 ```
 
-Do not expose ingest's staging, journal, or quarantine directories. The OPDS
-container UID/GID must be able to read the CBZ files and `publication.lock`.
-Komga can mount the same host `comics/current` directory at its configured
-`_oneshots` path; this does not create another filesystem copy.
+Do not mount the `comics` parent into OPDS. In particular, do not expose
+ingest's private `.h2hdb-state` staging, journal, quarantine, or lock
+directories. The OPDS container UID/GID must be able to read the CBZ files and
+`publication.lock`. Komga can mount the same host `comics/current` directory at
+its configured `_oneshots` path; this does not create another filesystem copy.
 
 Synology's Compose stop action is a supported maintenance path. A graceful
 SIGTERM lets active responses finish; when the process exits, the operating

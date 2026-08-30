@@ -182,12 +182,16 @@ path 均不得呼叫 `migrate()`。
 - 只支援單一 byte range。invalid、multiple 或 unsatisfiable range 回 416
   並帶 `Content-Range`；未知 unit 忽略；`If-Range` mismatch 回完整 200；
   date comparison 必須精確。
-- `library_root` 是唯一 public current tree；artifact 只能透過 core 的
+- `library_root` 是 single-library host root 下 `current` 的獨立 read-only
+  mount，也是唯一 public current tree；artifact 只能透過 core 的
   `ArtifactStorageKey.segments` 在 configured real library root 內解析，open
   時不得 follow symlink，且只接受符合 sealed size 的 regular file。
-- `coordination_root` 只包含 permanent `publication.lock` 與 optional
-  `ACTIVATING`。每個 catalog/feed/publication read 在 nonblocking shared
-  `flock` 下檢查 marker；acquisition 必須在同一 lock 內依序 pin current head、
+- `coordination_root` 是同一 host root 下 sibling `.h2hdb-coordination` 的獨立
+  read-only mount，只包含 permanent `publication.lock` 與 optional
+  `ACTIVATING`。不得把 parent root 或 `.h2hdb-state` 的 staging、quarantine、
+  journal、locks 暴露給 OPDS。每個 catalog/feed/publication read 都在
+  nonblocking shared `flock` 下檢查 marker；acquisition 必須在同一 lock 內
+  依序 pin current head、
   取得 artifact、open FD、驗證 fstat size，再重查 current head。Lock contention
   或任何 marker entry 都回 503；已開啟的 immutable inode 可在 release lock
   後直接 Range stream。
