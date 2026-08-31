@@ -181,9 +181,11 @@ path 均不得呼叫 `migrate()`。
   document；`acquisition.py` 負責 sealed extent responses；`media.py` 負責
   version-neutral page/thumbnail routes；`publication.py` 負責 URI identifier 與
   acquisition relation policy。
-- OPDS 1.2 與 2 root 必須同樣只有 `All Publications`、
-  `Recently Uploaded`、`Recently Downloaded` 三個 navigation item。All 與 search
-  使用 core discovery seek cursor，page limit 為 1..128；recent 使用 core
+- OPDS 1.2 與 2 root 必須同樣提供 `All Publications`、
+  `Recently Uploaded`、`Recently Downloaded` 三個 navigation item。OPDS 1.2
+  直接列出三個 entry；OPDS 2 以 `Browse` 與 `Recent Activity` 兩個 `groups`
+  分組，且不得另外重複頂層 `navigation`。All 與 search 使用 core discovery
+  seek cursor，page limit 為 1..128；recent 使用 core
   authoritative order 的固定完整 top-128 window，不接受 limit、cursor 或
   offset，也不產生 next/first/crawlable。OPDS 1.2 feed/entry 必須滿足 Atom 與
   OPDS RNC；OPDS 2 feed 使用 `application/opds+json`，standalone publication

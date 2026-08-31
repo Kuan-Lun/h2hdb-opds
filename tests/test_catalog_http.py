@@ -62,7 +62,7 @@ async def test_authentication_document_is_public_and_catalog_is_protected(
     assert acquisition["rel"] == OPDS_ACQUISITION_REL
 
 
-async def test_root_advertises_the_same_three_catalogs_and_search(
+async def test_root_groups_the_same_three_catalogs_and_advertises_search(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
@@ -79,15 +79,29 @@ async def test_root_advertises_the_same_three_catalogs_and_search(
         "Browse",
         "Recent Activity",
     ]
-    assert document["groups"][0]["metadata"]["numberOfItems"] == 3
-    navigation = [
-        entry for group in document["groups"] for entry in group["navigation"]
+    assert "navigation" not in document
+    assert [entry["title"] for entry in document["groups"][0]["navigation"]] == [
+        "All Publications"
     ]
-    assert [entry["title"] for entry in navigation] == [
-        "All Publications",
+    assert [entry["title"] for entry in document["groups"][1]["navigation"]] == [
         "Recently Uploaded",
         "Recently Downloaded",
     ]
+    assert all("numberOfItems" not in group["metadata"] for group in document["groups"])
+    navigation = [
+        entry for group in document["groups"] for entry in group["navigation"]
+    ]
+    assert [entry["properties"]["numberOfItems"] for entry in navigation] == [
+        3,
+        3,
+        3,
+    ]
+    assert [entry["rel"] for entry in navigation] == [
+        "subsection",
+        "http://opds-spec.org/sort/new",
+        "subsection",
+    ]
+    assert all("revision=7" in entry["href"] for entry in navigation)
     search = next(link for link in document["links"] if link["rel"] == "search")
     assert search["templated"] is True
     assert search["href"].endswith(

@@ -162,10 +162,7 @@ def navigation_document(
         "links": links,
         "groups": [
             {
-                "metadata": {
-                    "title": "Browse",
-                    "numberOfItems": count,
-                },
+                "metadata": {"title": "Browse"},
                 "navigation": [all_publications],
             },
             {

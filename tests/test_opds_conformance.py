@@ -117,11 +117,20 @@ async def test_empty_acquisition_catalogs_match_both_official_schemas(
 
     async with app_client(app) as client:
         atom = await client.get("/opds/v1.2/publications")
+        opds2_root = await client.get("/opds/v2")
         opds2 = await client.get("/opds/v2/publications")
 
     _assert_valid_atom(atom.content)
-    result = _opds2_validation("feed", opds2.json())
-    assert result.returncode == 0, result.stderr
+    for response in (opds2_root, opds2):
+        result = _opds2_validation("feed", response.json())
+        assert result.returncode == 0, result.stderr
+    root_document = opds2_root.json()
+    assert "navigation" not in root_document
+    assert [
+        entry["properties"]["numberOfItems"]
+        for group in root_document["groups"]
+        for entry in group["navigation"]
+    ] == [0, 0, 0]
 
 
 async def test_empty_search_results_match_both_official_schemas(
