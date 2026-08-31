@@ -75,7 +75,15 @@ async def test_root_advertises_the_same_three_catalogs_and_search(
     assert response.headers["content-type"] == OPDS_FEED_MEDIA_TYPE
     document = response.json()
     assert "numberOfItems" not in document["metadata"]
-    assert [entry["title"] for entry in document["navigation"]] == [
+    assert [group["metadata"]["title"] for group in document["groups"]] == [
+        "Browse",
+        "Recent Activity",
+    ]
+    assert document["groups"][0]["metadata"]["numberOfItems"] == 3
+    navigation = [
+        entry for group in document["groups"] for entry in group["navigation"]
+    ]
+    assert [entry["title"] for entry in navigation] == [
         "All Publications",
         "Recently Uploaded",
         "Recently Downloaded",

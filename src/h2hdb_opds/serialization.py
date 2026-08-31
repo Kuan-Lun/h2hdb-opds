@@ -123,6 +123,36 @@ def navigation_document(
         *_common_links(request, config, selected_revision),
     ]
     count = revision.artifact_count
+    all_publications = {
+        "title": "All Publications",
+        "href": _url_with_query(
+            external_url(request, config, "list_publications"),
+            {"revision": selected_revision},
+        ),
+        "type": OPDS_FEED_MEDIA_TYPE,
+        "rel": "subsection",
+        "properties": {"numberOfItems": count},
+    }
+    recently_uploaded = {
+        "title": "Recently Uploaded",
+        "href": _url_with_query(
+            external_url(request, config, "recently_uploaded"),
+            {"revision": selected_revision},
+        ),
+        "type": OPDS_FEED_MEDIA_TYPE,
+        "rel": OPDS_SORT_NEW_REL,
+        "properties": {"numberOfItems": min(128, count)},
+    }
+    recently_downloaded = {
+        "title": "Recently Downloaded",
+        "href": _url_with_query(
+            external_url(request, config, "recently_downloaded"),
+            {"revision": selected_revision},
+        ),
+        "type": OPDS_FEED_MEDIA_TYPE,
+        "rel": "subsection",
+        "properties": {"numberOfItems": min(128, count)},
+    }
     return {
         "metadata": {
             "@type": "http://schema.org/DataFeed",
@@ -130,36 +160,17 @@ def navigation_document(
             "modified": _format_datetime(revision.published_at),
         },
         "links": links,
-        "navigation": [
+        "groups": [
             {
-                "title": "All Publications",
-                "href": _url_with_query(
-                    external_url(request, config, "list_publications"),
-                    {"revision": selected_revision},
-                ),
-                "type": OPDS_FEED_MEDIA_TYPE,
-                "rel": "subsection",
-                "properties": {"numberOfItems": count},
+                "metadata": {
+                    "title": "Browse",
+                    "numberOfItems": count,
+                },
+                "navigation": [all_publications],
             },
             {
-                "title": "Recently Uploaded",
-                "href": _url_with_query(
-                    external_url(request, config, "recently_uploaded"),
-                    {"revision": selected_revision},
-                ),
-                "type": OPDS_FEED_MEDIA_TYPE,
-                "rel": OPDS_SORT_NEW_REL,
-                "properties": {"numberOfItems": min(128, count)},
-            },
-            {
-                "title": "Recently Downloaded",
-                "href": _url_with_query(
-                    external_url(request, config, "recently_downloaded"),
-                    {"revision": selected_revision},
-                ),
-                "type": OPDS_FEED_MEDIA_TYPE,
-                "rel": "subsection",
-                "properties": {"numberOfItems": min(128, count)},
+                "metadata": {"title": "Recent Activity"},
+                "navigation": [recently_uploaded, recently_downloaded],
             },
         ],
     }

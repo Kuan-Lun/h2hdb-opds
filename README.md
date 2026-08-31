@@ -90,7 +90,7 @@ read as a missing implementation in the other.
 
 | Capability | OPDS 1.2 specification | This server 1.2 | OPDS 2.0 specification | This server 2.0 |
 | --- | --- | --- | --- | --- |
-| Catalog navigation | Atom navigation feeds | Same three collections | Navigation collections | Same three collections |
+| Catalog navigation | Atom navigation feeds | Same three collections | Navigation and group collections | Same three collections, grouped as Browse and Recent Activity |
 | All Publications listing | Acquisition feed | Yes, cursor-paged; not marked crawlable/complete | Publications collection | Yes, cursor-paged |
 | Search | OpenSearch description and search link | Yes | Templated search link | Yes |
 | Facets | OPDS facet links | Language, tag and contributor; fully page-followable | Facet collections | Language, tag and contributor; fully page-followable |
@@ -98,7 +98,7 @@ read as a missing implementation in the other.
 | Cover and thumbnail | Image relations | Yes | `images` links | Yes |
 | Page count | Extension metadata | PSE `count` | `numberOfPages` | Emitted when greater than zero |
 | Comic page streaming | OPDS-PSE extension | Yes | No normative OPDS 2 PSE form | Not emitted |
-| Groups | No equivalent groups collection | Not applicable | `groups` collection | Not emitted; facets provide author/language/tag classification |
+| Groups | No equivalent groups collection | Not applicable | `groups` collection | Root navigation is split into Browse and Recent Activity groups |
 | Acquisition | OPDS acquisition relations | CBZ GET/HEAD/Range | Acquisition Link Objects | CBZ GET/HEAD/Range |
 | Shelf/subscriptions discovery | Optional `opds:shelf` and `opds:subscriptions` relations | Not advertised or stored | No general shelf collection | Not stored |
 | Reading progress | No persistent reading-progress model | Not stored | No core reading-progress feature | Not stored |
@@ -114,8 +114,8 @@ OPDS 1.2 `opds:subscriptions` discovery relation.
 Other deliberately unimplemented breadth includes an OPDS 1.2 complete,
 crawlable feed; popular, featured and recommendation relations or collections;
 field-specific advanced OpenSearch beyond `searchTerms`; advanced OPDS 2
-metadata search; multi-format acquisition alternatives; the full breadth of
-Readium publication metadata; and OPDS 2 `groups`. Most of these are optional
+metadata search; multi-format acquisition alternatives; and the full breadth of
+Readium publication metadata. Most of these are optional
 discovery or vocabulary features. Their absence is not a conformance failure
 for the documents and links this server does emit.
 
