@@ -23,6 +23,7 @@ _IGNORED_PATHS = (
     ".Codex/**",
     ".github/**",
     ".githooks/**",
+    ".gitattributes",
     ".gitignore",
     ".markdownlint-cli2.jsonc",
     "mypy.ini",
