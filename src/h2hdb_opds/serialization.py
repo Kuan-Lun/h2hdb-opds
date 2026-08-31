@@ -9,7 +9,7 @@ __all__ = [
 ]
 
 from datetime import UTC, datetime
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode
 
 from fastapi import Request
 from h2hdb import (
@@ -31,6 +31,7 @@ from .cursor import encode_discovery_cursor, encode_facet_cursor
 from .discovery import discovery_query_parameters, query_with_facet
 from .language import normalize_bcp47
 from .publication import acquisition_relation, publication_identifier
+from .uri import optional_uri
 from .urls import external_url
 
 OPDS_FEED_MEDIA_TYPE = "application/opds+json"
@@ -55,17 +56,6 @@ def _optional_trimmed(value: str | None) -> str | None:
     if value is None:
         return None
     return value.strip() or None
-
-
-def _optional_uri(value: str | None) -> str | None:
-    selected = _optional_trimmed(value)
-    if selected is None:
-        return None
-    try:
-        selected.encode("ascii", errors="strict")
-    except UnicodeEncodeError:
-        return None
-    return selected if urlsplit(selected).scheme else None
 
 
 def _url_with_query(url: str, parameters: dict[str, str | int]) -> str:
@@ -249,7 +239,7 @@ def publication_document(
                 key: value
                 for key, value in {
                     "name": subject.name.strip(),
-                    "scheme": _optional_uri(subject.scheme),
+                    "scheme": optional_uri(subject.scheme),
                     "code": _optional_trimmed(subject.code),
                 }.items()
                 if value is not None

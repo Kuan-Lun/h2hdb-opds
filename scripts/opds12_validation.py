@@ -50,9 +50,9 @@ def parse_document_path(path: str) -> etree._ElementTree:
     return etree.parse(path, secure_xml_parser())
 
 
-def _pse_attributes(link: etree._Element) -> set[str]:
+def _pse_attributes(element: etree._Element) -> set[str]:
     selected: set[str] = set()
-    for name in link.attrib:
+    for name in element.attrib:
         if not isinstance(name, str):
             raise OPDS12ValidationError("XML attribute names must be text")
         if etree.QName(name).namespace == PSE_NAMESPACE:
@@ -69,16 +69,23 @@ def validation_copy(document: etree._ElementTree) -> etree._ElementTree:
     """
     transformed = copy.deepcopy(document)
     pse_entries: set[etree._Element] = set()
-    for link in transformed.iter(_ATOM_LINK):
-        relation = link.get("rel")
-        href = link.get("href")
-        if href is None:
+    for element in transformed.iter():
+        tag: object = element.tag
+        if not isinstance(tag, str):
             continue
-        pse_attributes = _pse_attributes(link)
-        has_brace = "{" in href or "}" in href
+        if etree.QName(tag).namespace == PSE_NAMESPACE:
+            raise OPDS12ValidationError("OPDS-PSE elements are not supported")
 
-        if relation != PSE_STREAM_REL:
-            if has_brace:
+        relation = element.get("rel")
+        href = element.get("href")
+        pse_attributes = _pse_attributes(element)
+        is_stream_link = tag == _ATOM_LINK and relation == PSE_STREAM_REL
+        if not is_stream_link:
+            if relation == PSE_STREAM_REL:
+                raise OPDS12ValidationError(
+                    "an OPDS-PSE stream relation requires an Atom link"
+                )
+            if href is not None and ("{" in href or "}" in href):
                 raise OPDS12ValidationError(
                     "braces are allowed only in an OPDS-PSE stream link"
                 )
@@ -88,6 +95,11 @@ def validation_copy(document: etree._ElementTree) -> etree._ElementTree:
                 )
             continue
 
+        link = element
+        if href is None:
+            raise OPDS12ValidationError(
+                "an OPDS-PSE stream href must contain exactly one {pageNumber} token"
+            )
         parent = link.getparent()
         if parent is None or parent.tag != _ATOM_ENTRY:
             raise OPDS12ValidationError(

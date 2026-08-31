@@ -21,7 +21,7 @@ __all__ = [
 import re
 from datetime import UTC, datetime
 from typing import cast
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode
 from xml.etree import ElementTree
 
 from fastapi import Request
@@ -46,6 +46,7 @@ from .discovery import (
 )
 from .language import normalize_bcp47
 from .publication import acquisition_relation, publication_identifier
+from .uri import optional_uri
 from .urls import external_url
 
 ATOM_NAMESPACE = "http://www.w3.org/2005/Atom"
@@ -255,8 +256,8 @@ def _publication_entry(
         term = subject.code.strip() if subject.code is not None else ""
         term = term or label
         attributes = {"term": _xml_text(term), "label": _xml_text(label)}
-        scheme = subject.scheme.strip() if subject.scheme is not None else ""
-        if scheme and urlsplit(scheme).scheme:
+        scheme = optional_uri(subject.scheme)
+        if scheme is not None:
             attributes["scheme"] = _xml_text(scheme)
         ElementTree.SubElement(entry, _atom("category"), attributes)
 

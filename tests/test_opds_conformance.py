@@ -12,6 +12,7 @@ from lxml import etree
 
 from h2hdb_opds import OPDSConfig, create_app
 from scripts.opds12_validation import (
+    PSE_NAMESPACE,
     OPDS12ValidationError,
     load_relaxng,
     parse_document_bytes,
@@ -226,6 +227,46 @@ async def test_large_facet_pages_match_both_official_schemas(
         assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.parametrize(
+    ("scheme", "expected"),
+    [
+        ("urn:h2h:subject:tag", "urn:h2h:subject:tag"),
+        (" urn:h2h:subject:tag ", None),
+        ("http://[", None),
+        ("http://bad space", None),
+        ("https://books.example/%not-hex", None),
+    ],
+)
+async def test_optional_subject_uris_are_validated_for_both_protocols(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    scheme: str,
+    expected: str | None,
+) -> None:
+    publication = replace(
+        catalog_fixture.publications[0],
+        subjects=(CatalogSubject(name="invalid scheme", scheme=scheme, code="bad"),),
+    )
+    app = create_app(opds_config, FakeCatalog((publication,)))
+
+    async with app_client(app) as client:
+        atom = await client.get("/opds/v1.2/publications")
+        opds2 = await client.get("/opds/v2/publications")
+
+    assert atom.status_code == 200
+    atom_document = parse_document_bytes(atom.content)
+    category = atom_document.find(".//{http://www.w3.org/2005/Atom}category")
+    assert category is not None
+    assert category.get("scheme") == expected
+    validate_document(atom_document, _atom_validator())
+
+    assert opds2.status_code == 200
+    subject = opds2.json()["publications"][0]["metadata"]["subject"][0]
+    assert subject.get("scheme") == expected
+    result = _opds2_validation("feed", opds2.json())
+    assert result.returncode == 0, result.stderr
+
+
 def test_official_schema_negative_controls_reject_invalid_documents(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
@@ -372,6 +413,28 @@ def test_pse_attributes_require_the_exact_stream_relation() -> None:
     link.set("href", "https://books.example/pages/0")
 
     with pytest.raises(OPDS12ValidationError, match="attributes require"):
+        validate_document(document, _atom_validator())
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["entry-attribute", "title-attribute", "pse-element"],
+)
+def test_pse_namespace_is_allowlisted_across_the_complete_document(
+    mutation: str,
+) -> None:
+    document = _valid_pse_entry()
+    root = document.getroot()
+    if mutation == "entry-attribute":
+        root.set(f"{{{PSE_NAMESPACE}}}lastRead", "1")
+    elif mutation == "title-attribute":
+        title = root.find("{http://www.w3.org/2005/Atom}title")
+        assert title is not None
+        title.set(f"{{{PSE_NAMESPACE}}}maxWidth", "1")
+    else:
+        etree.SubElement(root, f"{{{PSE_NAMESPACE}}}unsupported")
+
+    with pytest.raises(OPDS12ValidationError, match="OPDS-PSE"):
         validate_document(document, _atom_validator())
 
 
