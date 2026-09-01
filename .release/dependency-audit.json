@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-08-31T01:42:37+00:00",
-  "manifest_sha256": "75246c2629787fd33a963db2dd7cca92922c46f0ace7a43b8541a21a4eeaf029",
+  "checked_at": "2026-09-01T21:07:40+00:00",
+  "manifest_sha256": "b700d158c7d87de51047fc970e49baf8dbc1e1a54ee5264947b52fd392d8617b",
   "node": [
     {
       "declared": ">=8.20.0 <9.0.0",
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.9.0",
+  "project_version": "0.10.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -42,9 +42,9 @@
       "url": "https://pypi.org/project/fastapi/"
     },
     {
-      "declared": "h2hdb>=0.28.0,<0.29",
+      "declared": "h2hdb>=0.29.0,<0.30.0",
       "group": "runtime",
-      "latest": "0.27.0",
+      "latest": "0.28.3",
       "latest_satisfies": false,
       "name": "h2hdb",
       "python_3_14": true,
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed every direct build, runtime, development, and Node dependency candidate for the breaking 0.9.0 release: hatchling, FastAPI, h2hdb, Pydantic, Uvicorn, build, HTTPX, lxml, lxml-stubs, mypy, packaging, pytest, pytest-asyncio, Ruff, Ajv, ajv-formats, and markdownlint-cli2. With these declared candidates, all 34 official schema snapshots passed exact closure/hash verification, the complete pinned OPDS 1.2, OPDS 2.0, and Readium Web Publication schema closure compiled and validated offline, and all 206 tests passed. The local source h2hdb 0.28.0 discovery, facet, recent, presentation, and storage-descriptor contract has been verified; the registry latest is still h2hdb 0.27.0 and therefore does not satisfy h2hdb>=0.28.0,<0.29. Publish h2hdb core 0.28.0 first, then publish h2hdb-opds only after core 0.28.0 is available from the chosen installation source. All other latest Python 3.14 and Node candidates remain within the reviewed declared ranges; validator dependencies remain development-only and validate the complete offline OPDS/Readium closure.",
+    "note": "Reviewed all build, runtime, optional, development, and Node direct dependencies for 0.10.0; the h2hdb 0.29 bundle contract is intentional and source-integrated, and benchmark tooling adds no runtime dependency.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
