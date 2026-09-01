@@ -115,15 +115,11 @@ def create_opds12_router(
             )
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
-        selection = catalog.discover_publications(
+        selection = catalog.discovery_feed(
             query=query,
             cursor=cursor,
             limit=limit,
             revision=revision,
-        )
-        facets = catalog.facets(
-            query=query,
-            revision=selection.page.revision.revision,
         )
         return atom_response(
             request,
@@ -133,7 +129,7 @@ def create_opds12_router(
                 selection.page,
                 cursor=selection.cursor,
                 query=query,
-                facet_pages=facets,
+                facet_pages=selection.facets,
                 endpoint="opds12_publications",
                 title="All Publications",
             ),
@@ -196,15 +192,11 @@ def create_opds12_router(
             contributor=contributor,
             role=role,
         )
-        selection = catalog.discover_publications(
+        selection = catalog.discovery_feed(
             query=query,
             cursor=cursor,
             limit=limit,
             revision=revision,
-        )
-        facets = catalog.facets(
-            query=query,
-            revision=selection.page.revision.revision,
         )
         title = "Search Results" if query.search is not None else "Browse Publications"
         return atom_response(
@@ -215,7 +207,7 @@ def create_opds12_router(
                 selection.page,
                 cursor=selection.cursor,
                 query=query,
-                facet_pages=facets,
+                facet_pages=selection.facets,
                 endpoint="opds12_search",
                 title=title,
             ),

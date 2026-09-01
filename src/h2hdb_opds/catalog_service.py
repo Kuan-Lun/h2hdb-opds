@@ -4,7 +4,7 @@ __all__ = [
     "CatalogService",
     "CursorBoundaryInvalid",
     "CursorInvalid",
-    "DiscoveryPageSelection",
+    "DiscoveryFeedSelection",
     "FacetPageSelection",
     "MediaRead",
     "MediaUnavailable",
@@ -79,10 +79,11 @@ class ArtifactUnavailable(LookupError):
 
 
 @dataclass(frozen=True, slots=True)
-class DiscoveryPageSelection:
+class DiscoveryFeedSelection:
     page: CatalogDiscoveryPage
     cursor: CatalogDiscoveryCursor | None
     query: CatalogDiscoveryQuery
+    facets: tuple[CatalogFacetPage, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,27 +247,73 @@ class CatalogService:
         with self._library_reads.read():
             return self._resolve_revision(requested)
 
-    def discover_publications(
+    def discovery_feed(
         self,
         *,
         query: CatalogDiscoveryQuery,
         cursor: str | None,
         limit: int | None,
         revision: int | None,
-    ) -> DiscoveryPageSelection:
+    ) -> DiscoveryFeedSelection:
+        """Read one page and all facet families under one catalog-head fence."""
+
         with self._library_reads.read():
-            selected = self._resolve_revision(revision)
-            selected_limit = self._selected_limit(limit)
+            try:
+                selected_limit = self._selected_limit(limit)
+            except PageLimitExceeded:
+                # Preserve the established public error precedence without
+                # adding a revision lookup to the successful hot path.
+                self._resolve_revision(revision)
+                raise
             try:
                 decoded = None if cursor is None else decode_discovery_cursor(cursor)
             except ValueError as error:
+                # Revision authority preceded cursor parsing before discovery
+                # and facet reads were bundled.  Probe only this error path so
+                # a stale/partial catalog retains the same public response.
+                self._resolve_revision(revision)
                 raise CursorInvalid from error
+            if (
+                decoded is not None
+                and revision is not None
+                and decoded.revision != revision
+            ):
+                self._resolve_revision(revision)
+                raise RevisionUnavailable(decoded.revision)
+            requested_revision = (
+                revision
+                if revision is not None
+                else (None if decoded is None else decoded.revision)
+            )
+            try:
+                bundle = self._reader().discover_publications_with_facets(
+                    query=query,
+                    after=decoded,
+                    limit=selected_limit,
+                    facet_limit=self._maximum_page_size,
+                    revision=requested_revision,
+                )
+            except CatalogRevisionNotFoundError as error:
+                raise RevisionUnavailable(requested_revision) from error
+            except CatalogCursorError as error:
+                raise CursorBoundaryInvalid from error
+
+            selected = bundle.page.revision
+            if (
+                requested_revision is not None
+                and selected.revision != requested_revision
+            ):
+                raise RevisionUnavailable(requested_revision)
+            if selected.artifact_count not in {0, selected.publication_count}:
+                raise LibraryUnavailable(
+                    "catalog revision violates the all-or-none artifact contract"
+                )
             if decoded is not None and decoded.revision != selected.revision:
                 raise RevisionUnavailable(decoded.revision)
             if not self._has_acquisition_catalog(selected):
                 if decoded is not None:
                     raise CursorBoundaryInvalid
-                return DiscoveryPageSelection(
+                return DiscoveryFeedSelection(
                     page=CatalogDiscoveryPage(
                         revision=selected,
                         publications=(),
@@ -276,60 +323,38 @@ class CatalogService:
                     ),
                     cursor=None,
                     query=query,
+                    facets=tuple(
+                        CatalogFacetPage(
+                            revision=selected,
+                            facet=facet,
+                            values=(),
+                            next_cursor=None,
+                            limit=self._maximum_page_size,
+                        )
+                        for facet in CatalogFacetKind
+                    ),
                 )
-            try:
-                with self._pinned_revision_read(selected):
-                    page = self._reader().discover_publications(
-                        query=query,
-                        after=decoded,
-                        limit=selected_limit,
-                        revision=selected,
-                    )
-            except CatalogCursorError as error:
-                raise CursorBoundaryInvalid from error
-        if page.revision != selected:
-            raise RevisionUnavailable(selected.revision)
+
+            page = bundle.page
+            facets = bundle.facets
+            if page.revision != selected or any(
+                facet.revision != selected for facet in facets
+            ):
+                raise RevisionUnavailable(selected.revision)
+            if tuple(facet.facet for facet in facets) != tuple(CatalogFacetKind):
+                raise RevisionUnavailable(selected.revision)
         for publication in page.publications:
             self._validate_publication(publication)
             if not publication.artifacts:
                 raise LibraryUnavailable(
                     "OPDS discovery returned an artifactless publication"
                 )
-        return DiscoveryPageSelection(page=page, cursor=decoded, query=query)
-
-    def facets(
-        self,
-        *,
-        query: CatalogDiscoveryQuery,
-        revision: int | None,
-    ) -> tuple[CatalogFacetPage, ...]:
-        with self._library_reads.read():
-            selected = self._resolve_revision(revision)
-            if not self._has_acquisition_catalog(selected):
-                return tuple(
-                    CatalogFacetPage(
-                        revision=selected,
-                        facet=facet,
-                        values=(),
-                        next_cursor=None,
-                        limit=self._maximum_page_size,
-                    )
-                    for facet in CatalogFacetKind
-                )
-            pages: list[CatalogFacetPage] = []
-            with self._pinned_revision_read(selected):
-                for facet in CatalogFacetKind:
-                    page = self._reader().list_publication_facets(
-                        facet=facet,
-                        query=query,
-                        after=None,
-                        limit=self._maximum_page_size,
-                        revision=selected,
-                    )
-                    if page.revision != selected or page.facet is not facet:
-                        raise RevisionUnavailable(selected.revision)
-                    pages.append(page)
-        return tuple(pages)
+        return DiscoveryFeedSelection(
+            page=page,
+            cursor=decoded,
+            query=query,
+            facets=facets,
+        )
 
     def facet_page(
         self,

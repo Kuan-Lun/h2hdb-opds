@@ -9,6 +9,7 @@ from h2hdb import (
     CatalogArtifact,
     CatalogContributor,
     CatalogCursorError,
+    CatalogDiscoveryBundle,
     CatalogDiscoveryCursor,
     CatalogDiscoveryPage,
     CatalogDiscoveryQuery,
@@ -59,6 +60,15 @@ class FakeCatalog:
             tuple[CatalogDiscoveryQuery, CatalogDiscoveryCursor | None, int]
         ] = []
         self.list_revisions: list[CatalogRevision | int | None] = []
+        self.bundle_calls: list[
+            tuple[
+                CatalogDiscoveryQuery,
+                CatalogDiscoveryCursor | None,
+                int,
+                int,
+                CatalogRevision | int | None,
+            ]
+        ] = []
         self.facet_calls: list[
             tuple[
                 CatalogFacetKind,
@@ -206,9 +216,39 @@ class FakeCatalog:
             next_cursor=next_cursor,
             limit=limit,
             total=(
-                selected_revision.artifact_count
+                selected_revision.publication_count
                 if query == CatalogDiscoveryQuery()
                 else None
+            ),
+        )
+
+    def discover_publications_with_facets(
+        self,
+        *,
+        query: CatalogDiscoveryQuery = _EMPTY_QUERY,
+        after: CatalogDiscoveryCursor | None = None,
+        limit: int = 50,
+        facet_limit: int = 128,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogDiscoveryBundle:
+        self.bundle_calls.append((query, after, limit, facet_limit, revision))
+        page = self.discover_publications(
+            query=query,
+            after=after,
+            limit=limit,
+            revision=revision,
+        )
+        return CatalogDiscoveryBundle(
+            page=page,
+            facets=tuple(
+                self.list_publication_facets(
+                    facet=facet,
+                    query=query,
+                    after=None,
+                    limit=facet_limit,
+                    revision=page.revision,
+                )
+                for facet in CatalogFacetKind
             ),
         )
 

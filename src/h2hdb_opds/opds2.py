@@ -72,15 +72,11 @@ def create_opds2_router(
         endpoint: str,
         title: str,
     ) -> JSONResponse:
-        selection = catalog.discover_publications(
+        selection = catalog.discovery_feed(
             query=query,
             cursor=cursor,
             limit=limit,
             revision=revision,
-        )
-        facets = catalog.facets(
-            query=query,
-            revision=selection.page.revision.revision,
         )
         return JSONResponse(
             discovery_document(
@@ -89,7 +85,7 @@ def create_opds2_router(
                 selection.page,
                 cursor=selection.cursor,
                 query=query,
-                facet_pages=facets,
+                facet_pages=selection.facets,
                 endpoint=endpoint,
                 title=title,
             ),

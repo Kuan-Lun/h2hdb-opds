@@ -1,12 +1,24 @@
 from dataclasses import replace
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from h2hdb import CatalogRevision, CatalogSubject
+from h2hdb import (
+    CatalogDiscoveryBundle,
+    CatalogDiscoveryQuery,
+    CatalogFacetKind,
+    CatalogRevision,
+    CatalogSubject,
+)
 from pydantic import SecretStr
 
 from h2hdb_opds import BasicAuthConfig, OPDSConfig, ServerConfig, create_app
 from h2hdb_opds.auth import AUTHENTICATION_MEDIA_TYPE
+from h2hdb_opds.catalog_service import (
+    CatalogService,
+    RevisionUnavailable,
+)
+from h2hdb_opds.library import LibraryReadCoordinator
 from h2hdb_opds.publication import (
     OPDS_ACQUISITION_REL,
     OPDS_OPEN_ACCESS_REL,
@@ -146,6 +158,97 @@ async def test_all_publications_uses_seek_pagination_and_stable_uri_identifiers(
         link for link in detail.json()["links"] if link["rel"] == OPDS_OPEN_ACCESS_REL
     )
     assert acquisition["size"] == len(catalog_fixture.payload)
+
+
+@pytest.mark.parametrize("path", ["/opds/v1.2/publications", "/opds/v2/publications"])
+async def test_discovery_feed_uses_one_revision_pinned_bundle_read(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    path: str,
+) -> None:
+    app = create_app(opds_config, catalog_fixture.catalog)
+
+    async with app_client(app) as client:
+        response = await client.get(path)
+
+    assert response.status_code == 200
+    assert catalog_fixture.catalog.revision_lookups == []
+    assert catalog_fixture.catalog.bundle_calls == [
+        (CatalogDiscoveryQuery(), None, 50, 128, None)
+    ]
+    assert len(catalog_fixture.catalog.list_calls) == 1
+    assert len(catalog_fixture.catalog.facet_calls) == len(CatalogFacetKind)
+
+
+async def test_discovery_feed_preserves_revision_first_error_precedence(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+) -> None:
+    app = create_app(opds_config, catalog_fixture.catalog)
+
+    async with app_client(app) as client:
+        response = await client.get(
+            "/opds/v2/publications",
+            params={"revision": 8, "cursor": "bad"},
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Catalog revision 8 not found"}
+    assert catalog_fixture.catalog.revision_lookups == [None]
+    assert catalog_fixture.catalog.bundle_calls == []
+
+
+def test_discovery_service_preserves_revision_before_limit_error_precedence(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+) -> None:
+    service = CatalogService(
+        reader=lambda: catalog_fixture.catalog,
+        library_reads=LibraryReadCoordinator(
+            library_root=opds_config.library_root,
+            coordination_root=opds_config.coordination_root,
+        ),
+        default_page_size=opds_config.default_page_size,
+        maximum_page_size=opds_config.maximum_page_size,
+    )
+
+    with pytest.raises(RevisionUnavailable) as raised:
+        service.discovery_feed(
+            query=CatalogDiscoveryQuery(),
+            cursor=None,
+            limit=129,
+            revision=8,
+        )
+
+    assert raised.value.revision == 8
+    assert catalog_fixture.catalog.revision_lookups == [None]
+    assert catalog_fixture.catalog.bundle_calls == []
+
+
+async def test_discovery_feed_rejects_noncanonical_facet_bundle(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = catalog_fixture.catalog.discover_publications_with_facets
+
+    def corrupted_bundle(**kwargs: Any) -> CatalogDiscoveryBundle:
+        bundle = original(**kwargs)
+        object.__setattr__(bundle, "facets", tuple(reversed(bundle.facets)))
+        return bundle
+
+    monkeypatch.setattr(
+        catalog_fixture.catalog,
+        "discover_publications_with_facets",
+        corrupted_bundle,
+    )
+    app = create_app(opds_config, catalog_fixture.catalog)
+
+    async with app_client(app) as client:
+        response = await client.get("/opds/v2/publications")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Catalog revision 7 not found"}
 
 
 async def test_search_and_facets_are_bounded_and_revision_pinned(
