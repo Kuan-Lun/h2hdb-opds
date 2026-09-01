@@ -391,6 +391,103 @@ dedicated OpenSearch/Authentication shape tests; executes all tests; builds
 sdist/wheel artifacts; and smoke-tests the installed wheel. `uv.lock` and
 `package-lock.json` are not rebuild inputs and must not be committed.
 
+### Scalability benchmark
+
+The repository-local scalability benchmark uses a deterministic, preindexed
+synthetic `CatalogReader`. It creates valid publication and one-byte artifact
+descriptors in memory but no CBZ files. Run the automatic-sized profile or the
+manual 10,000-publication profile with:
+
+```bash
+.venv/bin/python -m benchmarks.opds_scalability --profile smoke
+.venv/bin/python -m benchmarks.opds_scalability --profile 10k --compact
+```
+
+Both commands emit only machine-readable JSON on stdout. `operation_order`
+fixes the first discovery page, all three standalone facet families, a nonempty
+search, a discovery cursor page and a subject-facet cursor page. Discovery,
+search and discovery-cursor operations use the public
+`discover_publications_with_facets` bundle; the reader records every requested
+limit so tests can prove the route never falls back to an unbounded or legacy
+listing call.
+
+The latency pass has `tracemalloc` completely disabled. `first_sample_ns` is
+the first invocation of that operation in one fresh timing-pass application;
+later operations can still observe process and ASGI infrastructure warmed by
+earlier entries in `operation_order`. Each `warm` sample immediately repeats
+the same request. Status, exact body bytes, `Content-Type` and `Content-Length`
+must remain identical. The fixed smoke manifest and response-body digests make
+profile, fixture, config, query, cursor, operation-order and serialization drift
+an explicit reviewed change rather than a silently different workload.
+
+Every report also carries a path-independent source provenance manifest. Its
+SHA-256 uses deterministic logical names, sizes and content hashes for this
+checkout's `pyproject.toml`, every repository-local benchmark tool, every
+`src/h2hdb_opds/**/*.py` file, and the `.py` tree of the actually imported
+`h2hdb` package when that tree is locatable. A source-checkout import also binds
+the corresponding core `pyproject.toml`; each component reports that canonical
+project version. Canonical input never contains an absolute host path. The
+report lists each logical file receipt so the manifest can be audited. Git
+commit and dirty state and installed-distribution metadata are diagnostic only;
+they are excluded from canonical digests.
+
+Allocation measurements run separately. One fresh pass measures fixture and
+index construction; another creates a new reader and application before
+measuring request allocations. Every Python memory field is an explicitly
+named baseline delta. `process_lifetime_max_rss_bytes` remains the operating
+system's lifetime high-water mark across all three passes and is not attributed
+to a single request. No host-dependent timing or memory threshold is enforced;
+the smoke profile checks structural contracts while the 10k profile is a manual
+measurement.
+
+This remains explicitly a `serialization-only` result. Request timing includes
+in-process ASGI routing, coordination locking, `CatalogService`, bounded
+synthetic page slicing and OPDS 2 JSON serialization. It excludes SQL, database
+startup, network transport, CBZ creation and media reads. Do not compare it to a
+SQL-backed run without retaining that mode label.
+
+The separate SQL-backed benchmark consumes the core-owned fixture instead of
+adding an OPDS schema or connector seam. First create a new 10,000-publication
+fixture from the matching core checkout, then pass both immutable outputs to
+OPDS:
+
+```bash
+../h2hdb/.venv/bin/python \
+  ../h2hdb/benchmarks/sqlite_catalog_scalability.py \
+  --profile 10k \
+  --database /private/tmp/h2hdb-catalog-10k.sqlite3 \
+  --receipt /private/tmp/h2hdb-catalog-10k-core.json
+
+.venv/bin/python -m benchmarks.opds_sqlite_scalability \
+  --database /private/tmp/h2hdb-catalog-10k.sqlite3 \
+  --fixture-receipt /private/tmp/h2hdb-catalog-10k-core.json \
+  --output-receipt /private/tmp/h2hdb-catalog-10k-opds.json \
+  --warm-repetitions 5 --compact
+```
+
+The OPDS tool verifies the receipt size and duplicate-free JSON, its supported
+format/schema version, path-free fixture-contract digest, source/schema manifest
+digests, epoch/state, expected cardinalities, and exact SQLite SHA-256/size. A
+v1 core receipt may omit `receipt_schema_version`; an explicit value must be
+`1`, and unknown versions fail closed. Both the original v1 fixture-contract
+shape and the explicit-version v1 contract shape are recognized and reported.
+It then creates an empty temporary library and coordination lock and starts the
+ordinary application without an injected reader. The lifespan therefore calls
+public `h2hdb.open_database` with a read-only database config and performs the
+full READY audit.
+
+`timing_pass_startup_and_full_ready_audit_ns` and the independent memory-pass
+startup audit are setup measurements; neither is mixed into request samples.
+The fixed suite performs full in-process HTTP requests and serialization for
+discovery first/cursor pages, nonblank search first/cursor pages, and all three
+search-scoped facet endpoints. It checks receipt-oracle GID order and facet
+counts, revision-pinned links, exact response bodies and deterministic headers.
+Every operation records first/warm latency, body size/SHA-256 and an independent
+Python allocation peak. The canonical result digest contains no absolute input
+or temporary path. Finally the tool rehashes both inputs and refuses a run in
+which the database or core receipt changed. No CBZ, artwork, acquisition, or
+media payload path is requested.
+
 ## License
 
 GNU General Public License v3.0. See [LICENSE](LICENSE). Vendored schema notices

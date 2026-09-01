@@ -32,6 +32,7 @@ _IGNORED_PATHS = (
     "AGENTS.md",
     "CLAUDE.md",
     "README.md",
+    "benchmarks/**",
     "docs/**",
     "package.json",
     "scripts/**",
