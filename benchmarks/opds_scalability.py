@@ -1653,6 +1653,7 @@ async def run_benchmark(
     seed: int = DEFAULT_SEED,
 ) -> dict[str, object]:
     """Run one profile and return a machine-readable result object."""
+    benchmark_entry_max_rss_bytes = _process_max_rss_bytes()
     if tracemalloc.is_tracing():
         raise RuntimeError("benchmark requires tracemalloc to be disabled on entry")
     provenance_started = time.perf_counter_ns()
@@ -1756,9 +1757,13 @@ async def run_benchmark(
         "memory": {
             "fixture_and_index_fresh_pass": fixture_memory,
             "request_fresh_app_reader_pass": request_memory,
+            "process_lifetime_max_rss_at_benchmark_entry_bytes": (
+                benchmark_entry_max_rss_bytes
+            ),
             "process_lifetime_max_rss_bytes": _process_max_rss_bytes(),
             "process_lifetime_max_rss_scope": (
-                "lifetime high-water mark for the benchmark process across timing, "
+                "RUSAGE_SELF lifetime high-water mark; the entry sample includes "
+                "module import, while the final sample also includes timing, "
                 "fixture/index-memory, and request-memory passes"
             ),
         },

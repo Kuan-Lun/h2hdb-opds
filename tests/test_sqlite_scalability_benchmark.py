@@ -287,6 +287,11 @@ async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
 
     memory = cast("dict[str, object]", report["memory"])
     request_memory = cast("dict[str, object]", memory["request_fresh_app_pass"])
+    process_rss = memory["process_lifetime_max_rss_bytes"]
+    entry_process_rss = memory["process_lifetime_max_rss_at_benchmark_entry_bytes"]
+    assert isinstance(process_rss, int)
+    assert isinstance(entry_process_rss, int)
+    assert 0 < entry_process_rss <= process_rss
     assert isinstance(request_memory["python_traced_peak_delta_bytes"], int)
     assert request_memory["python_traced_peak_delta_bytes"] > 0
     operation_memory = cast(

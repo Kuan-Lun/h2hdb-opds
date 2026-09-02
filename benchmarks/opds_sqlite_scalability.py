@@ -1120,6 +1120,7 @@ async def run_sqlite_benchmark(
 ) -> dict[str, object]:
     """Run the SQL-backed HTTP benchmark and return its auditable receipt."""
 
+    benchmark_entry_max_rss_bytes = _process_max_rss_bytes()
     if type(warm_repetitions) is not int or not 1 <= warm_repetitions <= 20:
         raise ValueError("warm_repetitions must be in 1..20")
     if tracemalloc.is_tracing():
@@ -1249,10 +1250,15 @@ async def run_sqlite_benchmark(
         "operations": timing.operations,
         "memory": {
             "request_fresh_app_pass": memory,
+            "process_lifetime_max_rss_at_benchmark_entry_bytes": (
+                benchmark_entry_max_rss_bytes
+            ),
             "process_lifetime_max_rss_bytes": _process_max_rss_bytes(),
             "process_lifetime_max_rss_scope": (
-                "lifetime high-water mark for input validation, two startup audits, "
-                "timing requests, and request-memory pass"
+                "RUSAGE_SELF lifetime high-water mark; the entry sample includes "
+                "module import, while the final sample also includes input "
+                "validation, two startup audits, timing requests, and the "
+                "request-memory pass"
             ),
         },
         "determinism": {

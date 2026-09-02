@@ -313,8 +313,11 @@ async def test_serialization_scalability_smoke_profile_is_bounded() -> None:
         assert isinstance(value, int)
         assert value >= 0
     process_rss = memory["process_lifetime_max_rss_bytes"]
+    entry_process_rss = memory["process_lifetime_max_rss_at_benchmark_entry_bytes"]
     assert isinstance(process_rss, int)
     assert process_rss > 0
+    assert isinstance(entry_process_rss, int)
+    assert 0 < entry_process_rss <= process_rss
     request_operation_memory = cast(
         "dict[str, dict[str, object]]",
         request_memory["operations"],

@@ -434,11 +434,29 @@ they are excluded from canonical digests.
 Allocation measurements run separately. One fresh pass measures fixture and
 index construction; another creates a new reader and application before
 measuring request allocations. Every Python memory field is an explicitly
-named baseline delta. `process_lifetime_max_rss_bytes` remains the operating
-system's lifetime high-water mark across all three passes and is not attributed
-to a single request. No host-dependent timing or memory threshold is enforced;
-the smoke profile checks structural contracts while the 10k profile is a manual
+named baseline delta. The process RSS section records the `RUSAGE_SELF`
+high-water mark both on benchmark entry and after all passes. The entry value
+already includes Python module import, so neither value is attributed to a
+single request. No host-dependent timing or memory threshold is enforced; the
+smoke profile checks structural contracts while the 10k profile is a manual
 measurement.
+
+To isolate import memory from startup, fixture construction, SQL and requests,
+run the dedicated cold/warm child-process probe:
+
+```bash
+.venv/bin/python -m benchmarks.import_memory_probe --compact
+.venv/bin/python -m benchmarks.import_memory_probe \
+  --trace-allocations --compact
+```
+
+The probe primes only its harness in a fresh temporary
+`PYTHONPYCACHEPREFIX`, then imports
+`h2hdb._generated_vnext_schema` in one cold child and one warm child that reuses
+that isolated cache. Each sample reads its own `RUSAGE_SELF`; child maxima are
+never inferred from the parent or `RUSAGE_CHILDREN`. Allocation tracing is
+optional because tracing source compilation materially increases both time and
+memory. The temporary cache path is excluded from the machine-readable report.
 
 This remains explicitly a `serialization-only` result. Request timing includes
 in-process ASGI routing, coordination locking, `CatalogService`, bounded
