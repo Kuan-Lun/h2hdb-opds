@@ -20,9 +20,10 @@ art, thumbnails, downloads and the same current catalog revision.
 
 ## Quick start
 
-This service requires Python 3.14, an H2HDB 0.28 database whose epoch 3/schema
-version 2 is already `READY`, the read-only ingest `current` tree, and its
-sibling coordination directory. It never creates or migrates the database.
+This service requires Python 3.14, the H2HDB 0.30 compatibility lane, a database
+built fresh from that lane's epoch 3/schema version 2 manifest and already
+marked `READY`, the read-only ingest `current` tree, and its sibling
+coordination directory. It never creates or migrates the database.
 
 Create `opds.json`:
 
@@ -61,17 +62,17 @@ Then rebuild the local environment and start the server:
 .venv/bin/h2hdb-opds --config opds.json
 ```
 
-This release is a deliberate clean break. It accepts only cursor format v2 and
-the core discovery query-hash v2 contract; old saved cursor URLs return 422 and
-must be replaced by reopening the catalog. It also requires a database built
-from the current H2HDB epoch-3 manifest, including discovery, facet and
-presentation authorities. H2HDB has no compatibility migration or dual-read
-path for an older/foreign manifest: create a new blank database and republish
-the catalog. Storage likewise accepts only `managed-filesystem-v2` descriptors
-for the `acquisitions/hash-v2` and `artwork/hash-v2` trees. Legacy
-`current/hash-v1` is neither read nor migrated; ingest must build a fresh
-`current` tree. No legacy identifier, query-name, cursor or storage shim is
-retained.
+This release is a deliberate clean break. It accepts only H2HDB 0.30's current
+cursor and discovery contracts; saved URLs or databases from the 0.29 lane are
+not compatibility inputs and must be replaced by reopening a freshly
+republished catalog. The database must be built from the H2HDB 0.30 epoch-3
+manifest, including discovery, facet and presentation authorities. H2HDB has no
+compatibility migration or dual-read path for an older/foreign manifest: create
+a new blank database and republish the catalog. Storage likewise accepts only
+`managed-filesystem-v2` descriptors for the `acquisitions/hash-v2` and
+`artwork/hash-v2` trees. Legacy `current/hash-v1` is neither read nor migrated;
+ingest must build a fresh `current` tree. No legacy identifier, query-name,
+cursor, database or storage shim is retained.
 
 A JSON string that consists exactly of `${ENV_NAME}` is replaced recursively
 from the environment before validation. This works for OPDS and nested database
