@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-03T21:11:25+00:00",
-  "manifest_sha256": "48ca1f939741ecf2fe18aebd7edfc98520719dcac7714d8d7c45129d61e73091",
+  "checked_at": "2026-09-04T12:12:57+00:00",
+  "manifest_sha256": "0dfba69f2817d830c84f2dd502c296715005437014f9d3981c5c4994655828f3",
   "node": [
     {
       "declared": ">=8.20.0 <9.0.0",
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.11.0",
+  "project_version": "0.12.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -42,7 +42,7 @@
       "url": "https://pypi.org/project/fastapi/"
     },
     {
-      "declared": "h2hdb>=0.30.0,<0.31.0",
+      "declared": "h2hdb>=0.31.0,<0.32.0",
       "group": "runtime",
       "latest": "0.29.0",
       "latest_satisfies": false,
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all build, runtime, optional, development, and Node direct dependencies for 0.11.0. H2HDB 0.30.0 was installed from the explicitly supplied local source and the OPDS public-facade test surface passed without API adaptation; PyPI reports 0.29.0 because 0.30.0 is not yet published. The H2HDB <0.31 bound intentionally excludes the next compatibility lane, and the remaining upper bounds are deliberate major-version boundaries.",
+    "note": "Reviewed all build, runtime, optional-development, and Node direct dependencies for 0.12.0. The exact local h2hdb 0.31.0 source at commit 1a256b3bfe519585ed3e1bf349113b83343c5d77 is installed for compatibility verification; the <0.32.0 upper bound intentionally isolates future breaking core lanes. Existing major-version upper bounds remain deliberate compatibility boundaries, and registry candidates outside them require no additional manifest change.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
