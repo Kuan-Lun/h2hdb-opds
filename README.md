@@ -20,7 +20,7 @@ art, thumbnails, downloads and the same current catalog revision.
 
 ## Quick start
 
-This service requires Python 3.14, the H2HDB 0.30 compatibility lane, a database
+This service requires Python 3.14, the H2HDB 0.31 compatibility lane, a database
 built fresh from that lane's epoch 3/schema version 2 manifest and already
 marked `READY`, the read-only ingest `current` tree, and its sibling
 coordination directory. It never creates or migrates the database.
@@ -62,10 +62,10 @@ Then rebuild the local environment and start the server:
 .venv/bin/h2hdb-opds --config opds.json
 ```
 
-This release is a deliberate clean break. It accepts only H2HDB 0.30's current
-cursor and discovery contracts; saved URLs or databases from the 0.29 lane are
+This release is a deliberate clean break. It accepts only H2HDB 0.31's current
+cursor and discovery contracts; saved URLs or databases from the 0.30 lane are
 not compatibility inputs and must be replaced by reopening a freshly
-republished catalog. The database must be built from the H2HDB 0.30 epoch-3
+republished catalog. The database must be built from the H2HDB 0.31 epoch-3
 manifest, including discovery, facet and presentation authorities. H2HDB has no
 compatibility migration or dual-read path for an older/foreign manifest: create
 a new blank database and republish the catalog. Storage likewise accepts only
