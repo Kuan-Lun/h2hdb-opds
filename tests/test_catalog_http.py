@@ -249,8 +249,12 @@ async def test_discovery_feed_rejects_noncanonical_facet_bundle(
     async with app_client(app) as client:
         response = await client.get("/opds/v2/publications")
 
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Catalog revision 7 not found"}
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "catalog discovery facet families are incomplete or unordered",
+        "code": "catalog_integrity_error",
+    }
+    assert "retry-after" not in response.headers
 
 
 async def test_search_and_facets_are_bounded_and_revision_pinned(
@@ -601,7 +605,9 @@ async def test_noncanonical_publication_identifier_fails_closed(
     async with app_client(app) as client:
         response = await client.get(path)
 
-    assert response.status_code == 503
+    assert response.status_code == 500
+    assert response.json()["code"] == "catalog_integrity_error"
+    assert "retry-after" not in response.headers
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["detail"] == (
         "catalog publication identity violates the canonical GID contract"
@@ -638,7 +644,9 @@ async def test_publication_identifier_gid_mismatch_fails_closed(
     async with app_client(app) as client:
         response = await client.get(path)
 
-    assert response.status_code == 503
+    assert response.status_code == 500
+    assert response.json()["code"] == "catalog_integrity_error"
+    assert "retry-after" not in response.headers
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["detail"] == (
         "catalog publication identity violates the canonical GID contract"
@@ -701,7 +709,9 @@ async def test_invalid_opds_presentation_shape_fails_closed(
     async with app_client(app) as client:
         response = await client.get(path)
 
-    assert response.status_code == 503
+    assert response.status_code == 500
+    assert response.json()["code"] == "catalog_integrity_error"
+    assert "retry-after" not in response.headers
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["detail"] == (
         "catalog publication presentation violates the OPDS-PSE contract"
@@ -737,7 +747,9 @@ async def test_unsupported_artifact_media_type_fails_closed(
     async with app_client(app) as client:
         response = await client.get(path)
 
-    assert response.status_code == 503
+    assert response.status_code == 500
+    assert response.json()["code"] == "catalog_integrity_error"
+    assert "retry-after" not in response.headers
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["detail"] == (
         "catalog artifact is not a supported direct CBZ acquisition"
@@ -776,7 +788,9 @@ async def test_publication_requires_exactly_one_artifact(
     async with app_client(app) as client:
         response = await client.get(path)
 
-    assert response.status_code == 503
+    assert response.status_code == 500
+    assert response.json()["code"] == "catalog_integrity_error"
+    assert "retry-after" not in response.headers
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["detail"] == (
         "catalog publication must have exactly one direct CBZ acquisition"
@@ -811,7 +825,9 @@ async def test_corrupt_recent_window_fails_closed(
     async with app_client(app) as client:
         response = await client.get(path)
 
-    assert response.status_code == 503
+    assert response.status_code == 500
+    assert response.json()["code"] == "catalog_integrity_error"
+    assert "retry-after" not in response.headers
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["detail"] == detail
 
@@ -877,9 +893,10 @@ async def test_partial_artifact_revision_fails_closed_on_every_catalog_surface(
     async with app_client(app) as client:
         response = await client.get(path, params=parameters)
 
-    assert response.status_code == 503
+    assert response.status_code == 500
+    assert response.json()["code"] == "catalog_integrity_error"
+    assert "retry-after" not in response.headers
     assert response.headers["cache-control"] == "no-store"
-    assert response.headers["retry-after"] == "1"
     assert response.json()["detail"] == (
         "catalog revision violates the all-or-none artifact contract"
     )

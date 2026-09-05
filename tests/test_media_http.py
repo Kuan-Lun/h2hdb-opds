@@ -92,8 +92,13 @@ async def test_page_storage_size_is_checked_before_streaming(
         page = await client.get(_page_path())
         page_head = await client.head(_page_path())
 
-    assert page.status_code == 409
-    assert page_head.status_code == 409
+    assert page.status_code == 500
+    assert page.json()["code"] == "library_integrity_error"
+    assert "retry-after" not in page.headers
+    assert page.headers["cache-control"] == "no-store"
+    assert page_head.status_code == 500
+    assert "retry-after" not in page_head.headers
+    assert page_head.headers["cache-control"] == "no-store"
 
 
 async def test_open_page_descriptor_survives_atomic_leaf_replacement(

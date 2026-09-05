@@ -310,8 +310,13 @@ async def test_artifact_size_contract_is_checked_without_hashing(
         response = await client.get(_ALPHA_ACQUISITION_PATH)
         head = await client.head(_ALPHA_ACQUISITION_PATH)
 
-    assert response.status_code == 409
-    assert head.status_code == 409
+    assert response.status_code == 500
+    assert response.json()["code"] == "library_integrity_error"
+    assert "retry-after" not in response.headers
+    assert response.headers["cache-control"] == "no-store"
+    assert head.status_code == 500
+    assert "retry-after" not in head.headers
+    assert head.headers["cache-control"] == "no-store"
 
 
 async def test_head_and_not_modified_do_not_read_artifact_payload(

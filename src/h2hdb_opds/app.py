@@ -6,8 +6,10 @@ from contextlib import asynccontextmanager
 from importlib.metadata import version
 
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from h2hdb import CatalogReader, CatalogSearchQueryTooComplexError, open_database
+from starlette.exceptions import HTTPException
 
 from .auth import (
     AuthenticationRequired,
@@ -18,6 +20,7 @@ from .auth import (
 )
 from .catalog_service import (
     ArtifactUnavailable,
+    CatalogIntegrityError,
     CatalogService,
     CursorBoundaryInvalid,
     CursorInvalid,
@@ -27,11 +30,12 @@ from .catalog_service import (
     RevisionUnavailable,
 )
 from .config import OPDSConfig
-from .library import LibraryReadCoordinator, LibraryUnavailable
+from .library import LibraryIntegrityError, LibraryReadCoordinator, LibraryUnavailable
 from .media import create_media_router
 from .opds2 import create_opds2_router
 from .opds12 import create_opds12_router
 from .recovery import CatalogRefreshRequired
+from .routing import CanonicalSlashRedirectMiddleware
 
 _LOGGER = logging.getLogger("uvicorn.error")
 
@@ -79,6 +83,7 @@ def create_app(
         title=settings.title,
         version=package_version,
         lifespan=lifespan,
+        redirect_slashes=False,
     )
     authenticator = BasicAuthenticator(settings)
 
@@ -87,7 +92,7 @@ def create_app(
         request: Request,
         _error: AuthenticationRequired,
     ) -> Response:
-        if request.scope["path"].startswith("/opds/v1.2/"):
+        if request.scope["route"].name.startswith("opds12_"):
             return basic_authentication_required_response(settings)
         return authentication_required_response(request, settings)
 
@@ -99,7 +104,7 @@ def create_app(
         return JSONResponse(
             {"detail": "Basic authentication requires HTTPS"},
             status_code=426,
-            headers={"Upgrade": "TLS/1.2, HTTP/1.1"},
+            headers={"Upgrade": "TLS/1.2, HTTP/1.1", "Cache-Control": "no-store"},
         )
 
     @application.exception_handler(LibraryUnavailable)
@@ -108,10 +113,40 @@ def create_app(
         error: LibraryUnavailable,
     ) -> JSONResponse:
         return JSONResponse(
-            {"detail": str(error)},
+            {"detail": str(error), "code": "library_activating"},
             status_code=503,
             headers={"Cache-Control": "no-store", "Retry-After": "1"},
         )
+
+    @application.exception_handler(LibraryIntegrityError)
+    async def handle_library_integrity_error(
+        _request: Request,
+        error: LibraryIntegrityError,
+    ) -> JSONResponse:
+        _LOGGER.error("library_integrity_error: %s", error)
+        return JSONResponse(
+            {"detail": str(error), "code": "library_integrity_error"},
+            status_code=500,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @application.exception_handler(CatalogIntegrityError)
+    async def handle_catalog_integrity_error(
+        _request: Request,
+        error: CatalogIntegrityError,
+    ) -> JSONResponse:
+        _LOGGER.error("catalog_integrity_error: %s", error)
+        return JSONResponse(
+            {"detail": str(error), "code": "catalog_integrity_error"},
+            status_code=500,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @application.exception_handler(HTTPException)
+    async def handle_http_exception(request: Request, error: HTTPException) -> Response:
+        response = await http_exception_handler(request, error)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @application.exception_handler(RevisionUnavailable)
     async def handle_revision_unavailable(
@@ -175,21 +210,33 @@ def create_app(
         _request: Request,
         _error: PublicationUnavailable,
     ) -> JSONResponse:
-        return JSONResponse({"detail": "Publication not found"}, status_code=404)
+        return JSONResponse(
+            {"detail": "Publication not found"},
+            status_code=404,
+            headers={"Cache-Control": "no-store"},
+        )
 
     @application.exception_handler(ArtifactUnavailable)
     async def handle_artifact_unavailable(
         _request: Request,
         _error: ArtifactUnavailable,
     ) -> JSONResponse:
-        return JSONResponse({"detail": "Artifact not found"}, status_code=404)
+        return JSONResponse(
+            {"detail": "Artifact not found"},
+            status_code=404,
+            headers={"Cache-Control": "no-store"},
+        )
 
     @application.exception_handler(MediaUnavailable)
     async def handle_media_unavailable(
         _request: Request,
         _error: MediaUnavailable,
     ) -> JSONResponse:
-        return JSONResponse({"detail": "Publication media not found"}, status_code=404)
+        return JSONResponse(
+            {"detail": "Publication media not found"},
+            status_code=404,
+            headers={"Cache-Control": "no-store"},
+        )
 
     @application.get("/health", name="health")
     def health() -> dict[str, str]:
@@ -208,5 +255,10 @@ def create_app(
     )
     application.include_router(
         create_media_router(settings, authenticator, catalog_service)
+    )
+    application.add_middleware(
+        CanonicalSlashRedirectMiddleware,
+        router=application.router,
+        public_base_url=settings.public_base_url,
     )
     return application

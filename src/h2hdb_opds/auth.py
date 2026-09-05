@@ -76,6 +76,7 @@ def authentication_required_response(
         media_type=AUTHENTICATION_MEDIA_TYPE,
         headers={
             "WWW-Authenticate": _challenge(config.auth),
+            "Cache-Control": "no-store",
             "Link": (
                 f'<{authentication_url}>; rel="{AUTHENTICATION_DOCUMENT_REL}"; '
                 f'type="{AUTHENTICATION_MEDIA_TYPE}"'

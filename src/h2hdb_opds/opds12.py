@@ -65,9 +65,13 @@ def create_opds12_router(
             headers=headers,
         )
 
-    @router.api_route(
+    @router.head(
         "/catalog",
-        methods=["GET", "HEAD"],
+        name="opds12_head_catalog",
+        response_class=Response,
+    )
+    @router.get(
+        "/catalog",
         name="opds12_catalog",
         response_class=Response,
     )
@@ -86,9 +90,13 @@ def create_opds12_router(
             media_type=OPDS12_NAVIGATION_MEDIA_TYPE,
         )
 
-    @router.api_route(
+    @router.head(
         "/publications",
-        methods=["GET", "HEAD"],
+        name="opds12_head_publications",
+        response_class=Response,
+    )
+    @router.get(
+        "/publications",
         name="opds12_publications",
         response_class=Response,
     )
@@ -173,9 +181,13 @@ def create_opds12_router(
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @router.api_route(
+    @router.head(
         "/search",
-        methods=["GET", "HEAD"],
+        name="opds12_head_search",
+        response_class=Response,
+    )
+    @router.get(
+        "/search",
         name="opds12_search",
         response_class=Response,
     )
@@ -235,9 +247,13 @@ def create_opds12_router(
             media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
         )
 
-    @router.api_route(
+    @router.head(
         "/facets/{facet}",
-        methods=["GET", "HEAD"],
+        name="opds12_head_facet_values",
+        response_class=Response,
+    )
+    @router.get(
+        "/facets/{facet}",
         name="opds12_facet_values",
         response_class=Response,
     )
@@ -296,9 +312,13 @@ def create_opds12_router(
             media_type=OPDS12_NAVIGATION_MEDIA_TYPE,
         )
 
-    @router.api_route(
+    @router.head(
         "/opensearch.xml",
-        methods=["GET", "HEAD"],
+        name="opds12_head_opensearch",
+        response_class=Response,
+    )
+    @router.get(
+        "/opensearch.xml",
         name="opds12_opensearch",
         response_class=Response,
     )
@@ -346,9 +366,13 @@ def create_opds12_router(
             media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
         )
 
-    @router.api_route(
+    @router.head(
         "/recent/uploaded",
-        methods=["GET", "HEAD"],
+        name="opds12_head_recent_uploaded",
+        response_class=Response,
+    )
+    @router.get(
+        "/recent/uploaded",
         name="opds12_recent_uploaded",
         response_class=Response,
     )
@@ -364,9 +388,13 @@ def create_opds12_router(
             title="Recently Uploaded",
         )
 
-    @router.api_route(
+    @router.head(
         "/recent/downloaded",
-        methods=["GET", "HEAD"],
+        name="opds12_head_recent_downloaded",
+        response_class=Response,
+    )
+    @router.get(
+        "/recent/downloaded",
         name="opds12_recent_downloaded",
         response_class=Response,
     )
@@ -382,9 +410,13 @@ def create_opds12_router(
             title="Recently Downloaded",
         )
 
-    @router.api_route(
+    @router.head(
         "/publications/{publication_id}",
-        methods=["GET", "HEAD"],
+        name="opds12_head_publication",
+        response_class=Response,
+    )
+    @router.get(
+        "/publications/{publication_id}",
         name="opds12_publication",
         response_class=Response,
     )

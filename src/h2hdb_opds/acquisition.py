@@ -16,7 +16,8 @@ from fastapi import HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from h2hdb import CatalogArtifact, CatalogImageResource
 
-from .library import open_directory_without_symlinks
+from .catalog_service import CatalogIntegrityError
+from .library import LibraryIntegrityError, open_directory_without_symlinks
 
 _BYTE_RANGE_PATTERN = re.compile(r"bytes=[ \t]*(\d*)-(\d*)", re.IGNORECASE)
 _CHUNK_SIZE = 64 * 1024
@@ -307,14 +308,13 @@ def _open_sealed_resource(root: Path, resource: SealedByteResource) -> BinaryIO:
     # below are the authority that prevents an unsealed replacement.
     if source_stat.st_size != resource.storage_size:
         source.close()
-        raise HTTPException(
-            status_code=409,
-            detail="Resource no longer matches its published catalog metadata",
+        raise LibraryIntegrityError(
+            "Resource no longer matches its published catalog metadata"
         )
     extent_end = resource.extent_offset + resource.content_size
     if resource.extent_offset < 0 or extent_end > resource.storage_size:
         source.close()
-        raise HTTPException(status_code=409, detail="Resource extent is invalid")
+        raise CatalogIntegrityError("Resource extent is invalid")
     return source
 
 

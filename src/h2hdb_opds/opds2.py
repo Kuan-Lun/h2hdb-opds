@@ -46,6 +46,7 @@ def create_opds2_router(
         return JSONResponse(
             authentication_document(request, config),
             media_type=AUTHENTICATION_MEDIA_TYPE,
+            headers={"Cache-Control": "no-store"},
         )
 
     protected = APIRouter(

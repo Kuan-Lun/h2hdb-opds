@@ -17,5 +17,5 @@ def external_url(
     encoded_parameters = {
         name: quote(str(value), safe="") for name, value in path_parameters.items()
     }
-    route_url = request.url_for(route_name, **encoded_parameters)
-    return f"{config.public_base_url}{route_url.path}"
+    route_path = request.app.url_path_for(route_name, **encoded_parameters)
+    return f"{config.public_base_url}{route_path}"

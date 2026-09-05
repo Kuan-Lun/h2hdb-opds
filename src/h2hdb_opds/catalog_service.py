@@ -1,6 +1,7 @@
 __all__ = [
     "ArtifactRead",
     "ArtifactUnavailable",
+    "CatalogIntegrityError",
     "CatalogService",
     "CursorBoundaryInvalid",
     "CursorInvalid",
@@ -38,7 +39,7 @@ from h2hdb import (
 )
 
 from .cursor import decode_discovery_cursor, decode_facet_cursor
-from .library import LibraryReadCoordinator, LibraryUnavailable
+from .library import LibraryReadCoordinator
 from .publication import publication_gid, publication_identifier
 
 _PSE_PAGE_COUNT_MAXIMUM = 4096
@@ -50,6 +51,10 @@ class RevisionUnavailable(LookupError):
     def __init__(self, revision: int | None) -> None:
         self.revision = revision
         super().__init__(revision)
+
+
+class CatalogIntegrityError(RuntimeError):
+    """A catalog reader returned facts inconsistent with its pinned contract."""
 
 
 class CursorInvalid(ValueError):
@@ -137,7 +142,7 @@ class CatalogService:
         if requested is not None and requested != current.revision:
             raise RevisionUnavailable(requested)
         if current.artifact_count not in {0, current.publication_count}:
-            raise LibraryUnavailable(
+            raise CatalogIntegrityError(
                 "catalog revision violates the all-or-none artifact contract"
             )
         return current
@@ -174,7 +179,7 @@ class CatalogService:
                 expected_gid=publication.gid,
             )
         except (TypeError, ValueError) as error:
-            raise LibraryUnavailable(
+            raise CatalogIntegrityError(
                 "catalog publication identity violates the canonical GID contract"
             ) from error
         page_count = publication.page_count
@@ -183,14 +188,14 @@ class CatalogService:
             or not isinstance(page_count, int)
             or not 0 <= page_count <= _PSE_PAGE_COUNT_MAXIMUM
         ):
-            raise LibraryUnavailable(
+            raise CatalogIntegrityError(
                 "catalog publication presentation violates the OPDS-PSE contract"
             )
         has_pages = page_count > 0
         if (publication.cover is not None) != has_pages or (
             publication.thumbnail is not None
         ) != has_pages:
-            raise LibraryUnavailable(
+            raise CatalogIntegrityError(
                 "catalog publication presentation violates the OPDS-PSE contract"
             )
         if has_pages and (
@@ -199,11 +204,11 @@ class CatalogService:
             or publication.thumbnail is None
             or publication.thumbnail.media_type != _PSE_IMAGE_MEDIA_TYPE
         ):
-            raise LibraryUnavailable(
+            raise CatalogIntegrityError(
                 "catalog publication presentation violates the OPDS-PSE contract"
             )
         if len(publication.artifacts) != 1:
-            raise LibraryUnavailable(
+            raise CatalogIntegrityError(
                 "catalog publication must have exactly one direct CBZ acquisition"
             )
         for artifact in publication.artifacts:
@@ -212,7 +217,7 @@ class CatalogService:
     @staticmethod
     def _validate_artifact(artifact: CatalogArtifact) -> None:
         if artifact.media_type != _SUPPORTED_ARTIFACT_MEDIA_TYPE:
-            raise LibraryUnavailable(
+            raise CatalogIntegrityError(
                 "catalog artifact is not a supported direct CBZ acquisition"
             )
 
@@ -229,7 +234,7 @@ class CatalogService:
             or presentation.cover != publication.cover
             or presentation.thumbnail != publication.thumbnail
         ):
-            raise LibraryUnavailable(
+            raise CatalogIntegrityError(
                 "catalog presentation disagrees with its publication"
             )
 
@@ -303,13 +308,13 @@ class CatalogService:
                 requested_revision is not None
                 and selected.revision != requested_revision
             ):
-                raise RevisionUnavailable(requested_revision)
+                raise CatalogIntegrityError(
+                    "catalog discovery returned a revision different from the request"
+                )
             if selected.artifact_count not in {0, selected.publication_count}:
-                raise LibraryUnavailable(
+                raise CatalogIntegrityError(
                     "catalog revision violates the all-or-none artifact contract"
                 )
-            if decoded is not None and decoded.revision != selected.revision:
-                raise RevisionUnavailable(decoded.revision)
             if not self._has_acquisition_catalog(selected):
                 if decoded is not None:
                     raise CursorBoundaryInvalid
@@ -340,13 +345,17 @@ class CatalogService:
             if page.revision != selected or any(
                 facet.revision != selected for facet in facets
             ):
-                raise RevisionUnavailable(selected.revision)
+                raise CatalogIntegrityError(
+                    "catalog discovery facet revisions disagree with its page"
+                )
             if tuple(facet.facet for facet in facets) != tuple(CatalogFacetKind):
-                raise RevisionUnavailable(selected.revision)
+                raise CatalogIntegrityError(
+                    "catalog discovery facet families are incomplete or unordered"
+                )
         for publication in page.publications:
             self._validate_publication(publication)
             if not publication.artifacts:
-                raise LibraryUnavailable(
+                raise CatalogIntegrityError(
                     "OPDS discovery returned an artifactless publication"
                 )
         return DiscoveryFeedSelection(
@@ -400,7 +409,9 @@ class CatalogService:
             except CatalogCursorError as error:
                 raise CursorBoundaryInvalid from error
         if page.revision != selected or page.facet is not facet:
-            raise RevisionUnavailable(selected.revision)
+            raise CatalogIntegrityError(
+                "catalog facet page disagrees with its pinned request"
+            )
         return FacetPageSelection(page=page, cursor=decoded, query=query)
 
     def publication(
@@ -449,15 +460,17 @@ class CatalogService:
                     revision=selected,
                 )
         if window.revision != selected:
-            raise RevisionUnavailable(selected.revision)
+            raise CatalogIntegrityError(
+                "recent window disagrees with its pinned revision"
+            )
         if window.order is not order:
-            raise LibraryUnavailable(
+            raise CatalogIntegrityError(
                 "recent artifact window order differs from the request"
             )
         if len(window.publications) > 128 or any(
             not publication.artifacts for publication in window.publications
         ):
-            raise LibraryUnavailable(
+            raise CatalogIntegrityError(
                 "recent window is not an acquisition-only top-128 set"
             )
         for publication in window.publications:
@@ -560,7 +573,7 @@ class CatalogService:
                     or resource.media_type != _PSE_IMAGE_MEDIA_TYPE
                     or (page_index == 0 and resource != publication.cover)
                 ):
-                    raise LibraryUnavailable(
+                    raise CatalogIntegrityError(
                         "catalog page disagrees with its publication presentation"
                     )
                 yield MediaRead(

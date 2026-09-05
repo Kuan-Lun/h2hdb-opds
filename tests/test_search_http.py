@@ -248,6 +248,42 @@ async def test_pages_40_through_200_include_both_bounds(
     )
 
 
+async def test_same_namespace_tags_remain_and_through_revision_recovery(
+    catalog_fixture: CatalogFixture, opds_config: OPDSConfig, version: str
+) -> None:
+    alice = CatalogSubject(name="alice", scheme="tag", code="artist")
+    bob = CatalogSubject(name="bob", scheme="tag", code="artist")
+    publications = (
+        replace(catalog_fixture.publications[0], subjects=(alice, bob)),
+        replace(catalog_fixture.publications[1], subjects=(alice,)),
+        replace(catalog_fixture.publications[2], subjects=(bob,)),
+    )
+    catalog = FakeCatalog(publications)
+    parameter = _search_parameter(version)
+    parameters = {
+        parameter: "artist:alice artist:bob",
+        "tag_namespace": "artist",
+        "tag": "alice",
+        "revision": "7",
+    }
+    async with app_client(create_app(opds_config, catalog)) as client:
+        current = await client.get(f"/opds/{version}/search", params=parameters)
+        catalog.revision = replace(catalog.revision, revision=8)
+        stale = await client.get(f"/opds/{version}/search", params=parameters)
+        assert stale.status_code == 303
+        recovered = await client.get(stale.headers["location"])
+
+    assert (
+        _identifiers(current)
+        == _identifiers(recovered)
+        == (publications[0].publication_id,)
+    )
+    assert catalog.list_calls[-1][0].subjects == (
+        CatalogSubjectFilter("artist", "alice"),
+        CatalogSubjectFilter("artist", "bob"),
+    )
+
+
 async def test_multitag_http_and_facet_links_preserve_other_search_conditions(
     catalog_fixture: CatalogFixture, opds_config: OPDSConfig, version: str
 ) -> None:

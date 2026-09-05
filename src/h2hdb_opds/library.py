@@ -1,6 +1,7 @@
 __all__ = [
     "ACTIVATING_MARKER_NAME",
     "PUBLICATION_LOCK_NAME",
+    "LibraryIntegrityError",
     "LibraryReadCoordinator",
     "LibraryUnavailable",
     "open_directory_without_symlinks",
@@ -20,6 +21,10 @@ ACTIVATING_MARKER_NAME = "ACTIVATING"
 
 class LibraryUnavailable(RuntimeError):
     """The public library cannot be read during an activation transition."""
+
+
+class LibraryIntegrityError(RuntimeError):
+    """Durable library or coordination state violates its read contract."""
 
 
 def open_directory_without_symlinks(path: Path) -> int:
@@ -68,7 +73,7 @@ def _activation_marker_exists(coordination_descriptor: int) -> bool:
     except FileNotFoundError:
         return False
     except OSError as error:
-        raise LibraryUnavailable(
+        raise LibraryIntegrityError(
             "Library activation state cannot be verified"
         ) from error
     return True
@@ -132,11 +137,20 @@ class LibraryReadCoordinator:
                     self.coordination_root
                 )
                 lock_descriptor = _open_publication_lock(coordination_descriptor)
+            except OSError as error:
+                raise LibraryIntegrityError(
+                    "Library publication coordination cannot be opened"
+                ) from error
+            try:
                 fcntl.flock(lock_descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 locked = True
             except OSError as error:
-                raise LibraryUnavailable(
-                    "Library publication is temporarily unavailable"
+                if error.errno in {errno.EAGAIN, errno.EWOULDBLOCK}:
+                    raise LibraryUnavailable(
+                        "Library publication is temporarily unavailable"
+                    ) from error
+                raise LibraryIntegrityError(
+                    "Library publication lock cannot be acquired"
                 ) from error
             if _activation_marker_exists(coordination_descriptor):
                 raise LibraryUnavailable("Library publication is activating")
