@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
 from typing import Final, cast
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from fastapi import FastAPI
 from h2hdb import CoreConfig, DatabaseAccessMode, DatabaseConfig
@@ -969,7 +969,11 @@ def _validate_revision_links(
             raise RuntimeError(f"{operation} link escaped the benchmark origin")
         if link.get("rel") == "http://opds-spec.org/auth/document":
             continue
-        if f"revision={revision}" not in parsed.query:
+        if link.get("rel") == "start":
+            if href != f"{_PUBLIC_BASE_URL}/opds/v2":
+                raise RuntimeError(f"{operation} home link is not the stable root")
+            continue
+        if parse_qs(parsed.query).get("revision") != [str(revision)]:
             raise RuntimeError(f"{operation} link is not revision pinned")
         revision_pinned_count += 1
     if revision_pinned_count < 2:
