@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-05T06:40:40+00:00",
-  "manifest_sha256": "0dfba69f2817d830c84f2dd502c296715005437014f9d3981c5c4994655828f3",
+  "checked_at": "2026-09-05T07:27:50+00:00",
+  "manifest_sha256": "653799cfea58df610c18afdf3c6cda487d68ded54f7905e93066d18d95c23685",
   "node": [
     {
       "declared": ">=8.20.0 <9.0.0",
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.12.2",
+  "project_version": "0.13.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -42,10 +42,10 @@
       "url": "https://pypi.org/project/fastapi/"
     },
     {
-      "declared": "h2hdb>=0.31.0,<0.32.0",
+      "declared": "h2hdb>=0.32.0,<0.33.0",
       "group": "runtime",
       "latest": "0.31.0",
-      "latest_satisfies": true,
+      "latest_satisfies": false,
       "name": "h2hdb",
       "python_3_14": true,
       "url": "https://pypi.org/project/h2hdb/"
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all direct build, runtime, optional development and Node dependencies, including registry candidates outside declared bounds. Installed Python and Node versions match the latest registry releases recorded in this receipt; all candidates remain within declared bounds and support Python 3.14. No dependency change is needed for the additive OPDS 1.2 navigation link fix. Focused HTTP regression, fast checks and Panels 3.13.5 navigation checks passed; the integration gate validates the final release tree.",
+    "note": "Reviewed all direct build, runtime, optional development and Node candidates for the search DSL release. Latest registry candidates are unchanged from the reviewed 0.12.2 receipt and match the installed Python/Node validation environment, except that h2hdb now deliberately requires >=0.32.0,<0.33.0 for schema version 3 and typed search authority. Registry h2hdb 0.31.0 is below that lane; this cross-repository task explicitly installs the locally built 0.32.0 wheel whose schema, reader and writer changes were reviewed and exercised against SQLite and representative MariaDB cases. Both OPDS HTTP and conformance tests exercise the new query syntax with that wheel. No other dependency update is needed; the full merge gate independently validates the final release tree.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
