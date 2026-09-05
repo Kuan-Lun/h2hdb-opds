@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-05T07:27:50+00:00",
+  "checked_at": "2026-09-05T11:49:00+00:00",
   "manifest_sha256": "653799cfea58df610c18afdf3c6cda487d68ded54f7905e93066d18d95c23685",
   "node": [
     {
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.13.0",
+  "project_version": "0.14.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -44,8 +44,8 @@
     {
       "declared": "h2hdb>=0.32.0,<0.33.0",
       "group": "runtime",
-      "latest": "0.31.0",
-      "latest_satisfies": false,
+      "latest": "0.32.0",
+      "latest_satisfies": true,
       "name": "h2hdb",
       "python_3_14": true,
       "url": "https://pypi.org/project/h2hdb/"
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all direct build, runtime, optional development and Node candidates for the search DSL release. Latest registry candidates are unchanged from the reviewed 0.12.2 receipt and match the installed Python/Node validation environment, except that h2hdb now deliberately requires >=0.32.0,<0.33.0 for schema version 3 and typed search authority. Registry h2hdb 0.31.0 is below that lane; this cross-repository task explicitly installs the locally built 0.32.0 wheel whose schema, reader and writer changes were reviewed and exercised against SQLite and representative MariaDB cases. Both OPDS HTTP and conformance tests exercise the new query syntax with that wheel. No other dependency update is needed; the full merge gate independently validates the final release tree.",
+    "note": "Reviewed every direct build, runtime, optional development and Node dependency for the 0.14.0 search namespace release. Fresh PyPI and npm discovery matches every installed validation-environment version, and all candidates satisfy the declared ranges and Python 3.14 requirements where applicable. Compared with the previous reviewed receipt, only registry h2hdb changed from 0.31.0 to 0.32.0; the environment already used 0.32.0, and the registry release now satisfies the existing >=0.32.0,<0.33.0 lane. All other candidates are unchanged. No dependency upgrade or manifest change is needed. The 124 search parser and both-version HTTP regression tests passed with these dependencies; the full staged-candidate merge gate independently validates the final release tree.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
