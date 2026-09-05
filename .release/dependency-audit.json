@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-05T11:49:00+00:00",
+  "checked_at": "2026-09-05T12:40:37+00:00",
   "manifest_sha256": "653799cfea58df610c18afdf3c6cda487d68ded54f7905e93066d18d95c23685",
   "node": [
     {
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.14.0",
+  "project_version": "0.14.1",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed every direct build, runtime, optional development and Node dependency for the 0.14.0 search namespace release. Fresh PyPI and npm discovery matches every installed validation-environment version, and all candidates satisfy the declared ranges and Python 3.14 requirements where applicable. Compared with the previous reviewed receipt, only registry h2hdb changed from 0.31.0 to 0.32.0; the environment already used 0.32.0, and the registry release now satisfies the existing >=0.32.0,<0.33.0 lane. All other candidates are unchanged. No dependency upgrade or manifest change is needed. The 124 search parser and both-version HTTP regression tests passed with these dependencies; the full staged-candidate merge gate independently validates the final release tree.",
+    "note": "Reviewed every direct build, runtime, optional development and Node dependency for the 0.14.1 version API release. Fresh PyPI and npm candidates are unchanged from the reviewed 0.14.0 receipt, match the installed validation environment, satisfy all declared ranges and support Python 3.14 where applicable. No dependency update or manifest change is needed. Version, startup and maintenance diagnostics passed 17 targeted tests with this environment. The final staged-candidate merge gate independently runs the complete suite and verifies the version endpoint and OpenAPI against a freshly built and installed release wheel.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
