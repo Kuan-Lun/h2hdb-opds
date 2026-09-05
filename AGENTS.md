@@ -291,10 +291,19 @@ path 均不得呼叫 `migrate()`。
   每個 serialized publication 必須有 acquisition link；不得使用 legacy listing
   API、`OFFSET`、逐頁 `COUNT(*)`、OPDS-side sort、request-time ZIP parsing/image
   resize 或 protocol-specific durable pagination state。
-- 所有 feed、publication、pagination 與 acquisition link 都攜帶 selected
+- Root 的 self 與所有返回 root 的 start/up link 使用不帶 revision 的 canonical
+  public URL。其餘 feed、publication、pagination 與 acquisition link 攜帶 selected
   revision。省略 revision 時選 current head；明確 revision 只有等於 current
-  head 才接受，其他回 404。不得將 stale revision 替換成 current data，或在
-  同一 response 混用 revisions。
+  head 才可回傳該 revision 的資料，不得在同一 response 混用 revisions。
+- 兩版合法目錄、search、facet、recent 與 OPDS 1.2 OpenSearch 請求，只有在
+  explicit requested revision 與失敗 revision 相等且小於重新驗證的 current head
+  時可回 `303 See Other`。Location 必須由 canonical public base URL 與 typed
+  query 產生，保留搜尋、exact filters 與 limit，移除 revision 與 cursor 後重新
+  開始第一頁；不得信任 Host 或複製 raw query 作為導向 authority。
+  無效參數、未來 revision、缺少 current head 或未指定 revision 的讀取失敗
+  維持原錯誤。Publication detail、acquisition 與 media 不套用 revision recovery。
+  目錄、OpenSearch、publication detail、revision 404 與 recovery 回應使用
+  `Cache-Control: no-store`；activation 維持 `503`、`Retry-After: 1` 與 no-store。
 
 ### Verification
 

@@ -15,6 +15,7 @@ from .auth import (
 from .catalog_service import CatalogService
 from .config import OPDSConfig
 from .discovery import discovery_query
+from .recovery import recover_catalog_revision
 from .search import SEARCH_QUERY_MAXIMUM_BYTES
 from .serialization import (
     OPDS_FEED_MEDIA_TYPE,
@@ -57,10 +58,14 @@ def create_opds2_router(
         request: Request,
         revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> JSONResponse:
-        selected = catalog.revision(revision)
+        with recover_catalog_revision(
+            request, config, catalog, endpoint="navigation", revision=revision
+        ):
+            selected = catalog.revision(revision)
         return JSONResponse(
             navigation_document(request, config, selected),
             media_type=OPDS_FEED_MEDIA_TYPE,
+            headers={"Cache-Control": "no-store"},
         )
 
     def discovery_response(
@@ -71,12 +76,24 @@ def create_opds2_router(
         limit: int | None,
         revision: int | None,
     ) -> JSONResponse:
-        selection = catalog.discovery_feed(
+        with recover_catalog_revision(
+            request,
+            config,
+            catalog,
+            endpoint="list_publications",
+            search_endpoint="search_publications",
+            search_parameter="query",
             query=query,
             cursor=cursor,
             limit=limit,
             revision=revision,
-        )
+        ):
+            selection = catalog.discovery_feed(
+                query=query,
+                cursor=cursor,
+                limit=limit,
+                revision=revision,
+            )
         return JSONResponse(
             discovery_document(
                 request,
@@ -87,6 +104,7 @@ def create_opds2_router(
                 facet_pages=selection.facets,
             ),
             media_type=OPDS_FEED_MEDIA_TYPE,
+            headers={"Cache-Control": "no-store"},
         )
 
     @protected.get(
@@ -239,13 +257,25 @@ def create_opds2_router(
             contributor=contributor,
             role=role,
         )
-        selection = catalog.facet_page(
+        with recover_catalog_revision(
+            request,
+            config,
+            catalog,
+            endpoint="facet_values",
+            search_parameter="query",
             facet=facet_kind,
             query=selected,
             cursor=cursor,
             limit=limit,
             revision=revision,
-        )
+        ):
+            selection = catalog.facet_page(
+                facet=facet_kind,
+                query=selected,
+                cursor=cursor,
+                limit=limit,
+                revision=revision,
+            )
         return JSONResponse(
             facet_navigation_document(
                 request,
@@ -255,6 +285,7 @@ def create_opds2_router(
                 query=selected,
             ),
             media_type=OPDS_FEED_MEDIA_TYPE,
+            headers={"Cache-Control": "no-store"},
         )
 
     def recent_response(
@@ -273,7 +304,10 @@ def create_opds2_router(
                 status_code=422,
                 detail="recent feeds are fixed complete windows and are not paginated",
             )
-        window = catalog.recent_publications(order=order, revision=revision)
+        with recover_catalog_revision(
+            request, config, catalog, endpoint=endpoint, revision=revision
+        ):
+            window = catalog.recent_publications(order=order, revision=revision)
         return JSONResponse(
             recent_document(
                 request,
@@ -283,6 +317,7 @@ def create_opds2_router(
                 title=title,
             ),
             media_type=OPDS_FEED_MEDIA_TYPE,
+            headers={"Cache-Control": "no-store"},
         )
 
     @protected.get(
@@ -338,6 +373,7 @@ def create_opds2_router(
                 selection.revision.revision,
             ),
             media_type=OPDS_PUBLICATION_MEDIA_TYPE,
+            headers={"Cache-Control": "no-store"},
         )
 
     def artifact_response(

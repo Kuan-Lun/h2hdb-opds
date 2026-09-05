@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from importlib.metadata import version
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from h2hdb import CatalogReader, CatalogSearchQueryTooComplexError, open_database
 
 from .auth import (
@@ -31,6 +31,7 @@ from .library import LibraryReadCoordinator, LibraryUnavailable
 from .media import create_media_router
 from .opds2 import create_opds2_router
 from .opds12 import create_opds12_router
+from .recovery import CatalogRefreshRequired
 
 _LOGGER = logging.getLogger("uvicorn.error")
 
@@ -121,6 +122,18 @@ def create_app(
         return JSONResponse(
             {"detail": f"Catalog revision {description} not found"},
             status_code=404,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @application.exception_handler(CatalogRefreshRequired)
+    async def handle_catalog_refresh(
+        _request: Request,
+        error: CatalogRefreshRequired,
+    ) -> RedirectResponse:
+        return RedirectResponse(
+            error.location,
+            status_code=303,
+            headers={"Cache-Control": "no-store"},
         )
 
     @application.exception_handler(CursorInvalid)

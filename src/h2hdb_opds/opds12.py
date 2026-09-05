@@ -23,6 +23,7 @@ from .auth import BasicAuthenticator
 from .catalog_service import CatalogService
 from .config import OPDSConfig
 from .discovery import discovery_query
+from .recovery import recover_catalog_revision
 from .search import SEARCH_QUERY_MAXIMUM_BYTES
 
 _INT63_MAX = (1 << 63) - 1
@@ -55,9 +56,9 @@ def create_opds12_router(
         document: bytes,
         media_type: str,
     ) -> Response:
-        headers = (
-            {"Content-Length": str(len(document))} if request.method == "HEAD" else None
-        )
+        headers = {"Cache-Control": "no-store"}
+        if request.method == "HEAD":
+            headers["Content-Length"] = str(len(document))
         return Response(
             b"" if request.method == "HEAD" else document,
             media_type=media_type,
@@ -75,7 +76,10 @@ def create_opds12_router(
         revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> Response:
         reject_parameters(request, ("cursor", "limit", "offset"))
-        selected = catalog.revision(revision)
+        with recover_catalog_revision(
+            request, config, catalog, endpoint="opds12_catalog", revision=revision
+        ):
+            selected = catalog.revision(revision)
         return atom_response(
             request,
             document=navigation_feed_document(request, config, selected),
@@ -116,12 +120,23 @@ def create_opds12_router(
             )
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
-        selection = catalog.discovery_feed(
+        with recover_catalog_revision(
+            request,
+            config,
+            catalog,
+            endpoint="opds12_publications",
+            search_endpoint="opds12_search",
             query=query,
             cursor=cursor,
             limit=limit,
             revision=revision,
-        )
+        ):
+            selection = catalog.discovery_feed(
+                query=query,
+                cursor=cursor,
+                limit=limit,
+                revision=revision,
+            )
         return atom_response(
             request,
             document=acquisition_feed_document(
@@ -191,12 +206,22 @@ def create_opds12_router(
             contributor=contributor,
             role=role,
         )
-        selection = catalog.discovery_feed(
+        with recover_catalog_revision(
+            request,
+            config,
+            catalog,
+            endpoint="opds12_search",
             query=query,
             cursor=cursor,
             limit=limit,
             revision=revision,
-        )
+        ):
+            selection = catalog.discovery_feed(
+                query=query,
+                cursor=cursor,
+                limit=limit,
+                revision=revision,
+            )
         return atom_response(
             request,
             document=acquisition_feed_document(
@@ -241,13 +266,24 @@ def create_opds12_router(
             contributor=contributor,
             role=role,
         )
-        selection = catalog.facet_page(
+        with recover_catalog_revision(
+            request,
+            config,
+            catalog,
+            endpoint="opds12_facet_values",
             facet=facet_kind,
             query=query,
             cursor=cursor,
             limit=limit,
             revision=revision,
-        )
+        ):
+            selection = catalog.facet_page(
+                facet=facet_kind,
+                query=query,
+                cursor=cursor,
+                limit=limit,
+                revision=revision,
+            )
         return atom_response(
             request,
             document=facet_navigation_feed_document(
@@ -271,7 +307,10 @@ def create_opds12_router(
         revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
     ) -> Response:
         reject_parameters(request, ("cursor", "limit", "offset"))
-        selected = catalog.revision(revision)
+        with recover_catalog_revision(
+            request, config, catalog, endpoint="opds12_opensearch", revision=revision
+        ):
+            selected = catalog.revision(revision)
         return atom_response(
             request,
             document=opensearch_description_document(
@@ -291,7 +330,10 @@ def create_opds12_router(
         title: str,
     ) -> Response:
         reject_parameters(request, ("cursor", "limit", "offset"))
-        window = catalog.recent_publications(order=order, revision=revision)
+        with recover_catalog_revision(
+            request, config, catalog, endpoint=endpoint, revision=revision
+        ):
+            window = catalog.recent_publications(order=order, revision=revision)
         return atom_response(
             request,
             document=recent_acquisition_feed_document(

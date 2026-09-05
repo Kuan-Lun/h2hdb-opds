@@ -74,15 +74,11 @@ def _discovery_query_parameters(query: CatalogDiscoveryQuery) -> dict[str, str]:
 def _common_links(
     request: Request,
     config: OPDSConfig,
-    revision: int,
 ) -> list[dict[str, object]]:
     links: list[dict[str, object]] = [
         {
             "rel": "start",
-            "href": _url_with_query(
-                external_url(request, config, "navigation"),
-                {"revision": revision},
-            ),
+            "href": external_url(request, config, "navigation"),
             "type": OPDS_FEED_MEDIA_TYPE,
         },
         {
@@ -118,14 +114,11 @@ def navigation_document(
     revision: CatalogRevision,
 ) -> dict[str, object]:
     selected_revision = revision.revision
-    self_url = _url_with_query(
-        external_url(request, config, "navigation"),
-        {"revision": selected_revision},
-    )
+    self_url = external_url(request, config, "navigation")
     links = [
         {"rel": "self", "href": self_url, "type": OPDS_FEED_MEDIA_TYPE},
         _search_link(request, config, selected_revision),
-        *_common_links(request, config, selected_revision),
+        *_common_links(request, config),
     ]
     count = revision.artifact_count
     all_publications = {
@@ -562,7 +555,7 @@ def facet_navigation_document(
             ),
             "type": OPDS_FEED_MEDIA_TYPE,
         },
-        *_common_links(request, config, revision),
+        *_common_links(request, config),
     ]
     if page.next_cursor is not None:
         links.append(
@@ -659,7 +652,7 @@ def discovery_document(
         cursor=cursor,
         query=query,
     )
-    links.extend(_common_links(request, config, page.revision.revision))
+    links.extend(_common_links(request, config))
     metadata: dict[str, object] = {
         "@type": "http://schema.org/DataFeed",
         "title": "Search Results" if has_search_query(query) else "All Publications",
@@ -716,7 +709,7 @@ def recent_document(
             ),
             "type": OPDS_FEED_MEDIA_TYPE,
         },
-        *_common_links(request, config, revision),
+        *_common_links(request, config),
     ]
     document: dict[str, object] = {
         "metadata": {

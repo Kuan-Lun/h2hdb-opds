@@ -525,7 +525,7 @@ async def test_metadata_only_revision_hides_stale_reader_resources(
     assert catalog.artifact_revisions == []
 
 
-async def test_revision_and_cursor_fail_closed(
+async def test_stale_pagination_restarts_while_invalid_cursor_fails_closed(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
@@ -545,9 +545,21 @@ async def test_revision_and_cursor_fail_closed(
             artifact_count=3,
         )
         stale = await client.get(next_url)
+        assert stale.status_code == 303
+        assert stale.headers["Cache-Control"] == "no-store"
+        target = urlsplit(stale.headers["Location"])
+        assert target.netloc == "catalog.example"
+        assert target.path == "/opds/v2/publications"
+        assert parse_qs(target.query) == {"limit": ["1"]}
+        restarted = await client.get(stale.headers["Location"])
 
     assert invalid.status_code == 422
-    assert stale.status_code == 404
+    assert restarted.status_code == 200
+    assert restarted.json()["publications"][0]["metadata"]["title"] == "Alpha Gallery"
+    current_self = next(
+        link["href"] for link in restarted.json()["links"] if link["rel"] == "self"
+    )
+    assert parse_qs(urlsplit(current_self).query)["revision"] == ["8"]
 
 
 @pytest.mark.parametrize(

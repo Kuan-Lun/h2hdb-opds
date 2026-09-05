@@ -422,7 +422,6 @@ def navigation_feed_document(
 ) -> bytes:
     selected_revision = revision.revision
     feed_url = external_url(request, config, "opds12_catalog")
-    self_url = _url_with_query(feed_url, {"revision": selected_revision})
     feed = _feed(
         identifier=feed_url,
         title=config.title,
@@ -432,13 +431,13 @@ def navigation_feed_document(
     _link(
         feed,
         relation="self",
-        href=self_url,
+        href=feed_url,
         media_type=OPDS12_NAVIGATION_MEDIA_TYPE,
     )
     _link(
         feed,
         relation="start",
-        href=self_url,
+        href=feed_url,
         media_type=OPDS12_NAVIGATION_MEDIA_TYPE,
     )
     _search_description_link(feed, request, config, selected_revision)
@@ -637,7 +636,7 @@ def facet_navigation_feed_document(
         "opds12_facet_values",
         facet=page.facet.value,
     )
-    root_url = _revision_url(request, config, "opds12_catalog", revision)
+    root_url = external_url(request, config, "opds12_catalog")
     title = _FACET_TITLES[page.facet]
     feed = _feed(
         identifier=feed_url,
@@ -728,7 +727,7 @@ def acquisition_feed_document(
 ) -> bytes:
     feed_url = external_url(request, config, _discovery_endpoint(query))
     revision = page.revision.revision
-    root_url = _revision_url(request, config, "opds12_catalog", revision)
+    root_url = external_url(request, config, "opds12_catalog")
     feed = _feed(
         identifier=feed_url,
         title="Search Results" if has_search_query(query) else "All Publications",
@@ -834,7 +833,7 @@ def recent_acquisition_feed_document(
 
     revision = window.revision.revision
     feed_url = external_url(request, config, endpoint)
-    root_url = _revision_url(request, config, "opds12_catalog", revision)
+    root_url = external_url(request, config, "opds12_catalog")
     feed = _feed(
         identifier=feed_url,
         title=title,

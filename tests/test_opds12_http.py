@@ -270,11 +270,26 @@ async def test_opensearch_results_keep_pagination_and_revision_fencing(
         catalog.add_revision(
             replace(catalog.revision, revision=8), catalog.publications
         )
-        assert (await client.get(search_url)).status_code == 404
-        assert (await client.get(next_url)).status_code == 404
-        assert (
-            await client.get("/opds/v1.2/opensearch.xml?revision=7")
-        ).status_code == 404
+        for old_url in (search_url, next_url):
+            stale = await client.get(old_url)
+            assert stale.status_code == 303
+            parameters = parse_qs(urlsplit(stale.headers["Location"]).query)
+            assert parameters["q"] == ["cobalt"]
+            assert "revision" not in parameters
+            assert "cursor" not in parameters
+            restarted = _xml(
+                await client.get(stale.headers["Location"]),
+                OPDS12_ACQUISITION_MEDIA_TYPE,
+            )
+            assert _entry_titles(restarted) == ["Alpha Gallery"]
+            assert parse_qs(urlsplit(_link(restarted, "self").attrib["href"]).query)[
+                "revision"
+            ] == ["8"]
+        stale_descriptor = await client.get("/opds/v1.2/opensearch.xml?revision=7")
+        assert stale_descriptor.status_code == 303
+        assert stale_descriptor.headers["Location"] == (
+            "http://catalog.example/opds/v1.2/opensearch.xml"
+        )
         fresh = _xml(
             await client.get("/opds/v1.2/opensearch.xml"), OPEN_SEARCH_MEDIA_TYPE
         )
