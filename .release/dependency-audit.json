@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-04T12:12:57+00:00",
+  "checked_at": "2026-09-05T05:17:22+00:00",
   "manifest_sha256": "0dfba69f2817d830c84f2dd502c296715005437014f9d3981c5c4994655828f3",
   "node": [
     {
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.12.0",
+  "project_version": "0.12.1",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -44,8 +44,8 @@
     {
       "declared": "h2hdb>=0.31.0,<0.32.0",
       "group": "runtime",
-      "latest": "0.29.0",
-      "latest_satisfies": false,
+      "latest": "0.31.0",
+      "latest_satisfies": true,
       "name": "h2hdb",
       "python_3_14": true,
       "url": "https://pypi.org/project/h2hdb/"
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all build, runtime, optional-development, and Node direct dependencies for 0.12.0. The exact local h2hdb 0.31.0 source at commit 1a256b3bfe519585ed3e1bf349113b83343c5d77 is installed for compatibility verification; the <0.32.0 upper bound intentionally isolates future breaking core lanes. Existing major-version upper bounds remain deliberate compatibility boundaries, and registry candidates outside them require no additional manifest change.",
+    "note": "Reviewed all build, runtime, optional-development, and Node direct dependencies for 0.12.1. Every current registry latest is already installed and satisfies the declared bounds; all Python candidates advertise Python 3.14 support. PyPI h2hdb 0.31.0 satisfies >=0.31.0,<0.32.0; this compatibility environment uses editable h2hdb 0.31.0 at clean commit 0510f37354091ae852f77c1a146b906d680d799b. Reviewed Pydantic 2.13.5 validation and GC fixes, lxml 6.1.3 external-entity fix, build 1.6.0 CLI and API changes, packaging 26.3 parsing and platform changes, and Ruff 0.16.6 diagnostics. Removed build APIs are unused. Existing upper bounds remain compatibility boundaries. No dependency installation or dependency-manifest changes were required. OpenSearch regression tests and the fast gate passed; final distribution and suite validation remain enforced by the mandatory full merge gate.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
