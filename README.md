@@ -156,6 +156,11 @@ They are not paginated and reject `cursor`, `limit` and `offset`. â€œDownloadedâ
 means the immutable source download timestamp published by H2HDB, not the time
 an OPDS user fetched the CBZ.
 
+Every OPDS 1.2 navigation entry provides a `subsection` link. Recently Uploaded
+also retains its `http://opds-spec.org/sort/new` link to the same feed, preserving
+the sorting relation while allowing readers such as Panels to display it as a
+browsable collection.
+
 Free-text search and facets are available at:
 
 ```text

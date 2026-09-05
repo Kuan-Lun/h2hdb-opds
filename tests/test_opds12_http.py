@@ -14,6 +14,7 @@ from h2hdb_opds.atom import (
     OPDS12_ENTRY_MEDIA_TYPE,
     OPDS12_NAVIGATION_MEDIA_TYPE,
     OPDS_NAMESPACE,
+    OPDS_SORT_NEW_REL,
     OPEN_SEARCH_MEDIA_TYPE,
     OPEN_SEARCH_NAMESPACE,
     PSE_NAMESPACE,
@@ -69,18 +70,52 @@ async def test_root_has_all_and_both_recent_navigation_entries(
     opds_config: OPDSConfig,
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
+    expected_navigation = {
+        "All Publications": (
+            "/opds/v1.2/publications",
+            ["Alpha Gallery", "Beta Gallery", "Gamma Gallery"],
+        ),
+        "Recently Uploaded": (
+            "/opds/v1.2/recent/uploaded",
+            ["Beta Gallery", "Alpha Gallery", "Gamma Gallery"],
+        ),
+        "Recently Downloaded": (
+            "/opds/v1.2/recent/downloaded",
+            ["Gamma Gallery", "Alpha Gallery", "Beta Gallery"],
+        ),
+    }
 
     async with app_client(app) as client:
         response = await client.get("/opds/v1.2/catalog")
+        root = _xml(response, OPDS12_NAVIGATION_MEDIA_TYPE)
+        assert _entry_titles(root) == list(expected_navigation)
+        entries = root.findall("atom:entry", _NAMESPACES)
+        assert len(
+            {entry.findtext("atom:id", namespaces=_NAMESPACES) for entry in entries}
+        ) == len(entries)
+        for entry, (title, (path, expected_titles)) in zip(
+            entries, expected_navigation.items(), strict=True
+        ):
+            links = entry.findall("atom:link", _NAMESPACES)
+            subsections = [link for link in links if link.attrib["rel"] == "subsection"]
+            assert len(subsections) == 1
+            subsection = subsections[0]
+            assert links[0] is subsection
+            assert subsection.attrib["href"] == (
+                f"http://catalog.example{path}?revision=7"
+            )
+            assert subsection.attrib["type"] == OPDS12_ACQUISITION_MEDIA_TYPE
+            if title == "Recently Uploaded":
+                newest = _link(entry, OPDS_SORT_NEW_REL)
+                assert newest.attrib["href"] == subsection.attrib["href"]
+                assert newest.attrib["type"] == OPDS12_ACQUISITION_MEDIA_TYPE
+            linked_feed = _xml(
+                await client.get(subsection.attrib["href"]),
+                OPDS12_ACQUISITION_MEDIA_TYPE,
+            )
+            assert linked_feed.findtext("atom:title", namespaces=_NAMESPACES) == title
+            assert _entry_titles(linked_feed) == expected_titles
 
-    root = _xml(response, OPDS12_NAVIGATION_MEDIA_TYPE)
-    assert _entry_titles(root) == [
-        "All Publications",
-        "Recently Uploaded",
-        "Recently Downloaded",
-    ]
-    all_link = _entry_link(root, "All Publications")
-    assert all_link.attrib["href"].endswith("/opds/v1.2/publications?revision=7")
     search = _link(root, "search")
     assert search.attrib["type"] == OPEN_SEARCH_MEDIA_TYPE
     assert search.attrib["href"].endswith("/opds/v1.2/opensearch.xml?revision=7")
@@ -328,20 +363,11 @@ async def test_recent_feeds_are_fixed_complete_windows(
             params={"limit": 1},
         )
 
-    assert _entry_titles(uploaded) == [
-        "Beta Gallery",
-        "Alpha Gallery",
-        "Gamma Gallery",
-    ]
-    assert _entry_titles(downloaded) == [
-        "Gamma Gallery",
-        "Alpha Gallery",
-        "Beta Gallery",
-    ]
-    assert not any(
-        link.attrib["rel"] in {"first", "next"}
-        for link in uploaded.findall("atom:link", _NAMESPACES)
-    )
+    for feed in (uploaded, downloaded):
+        assert not any(
+            link.attrib["rel"] in {"first", "next"}
+            for link in feed.findall("atom:link", _NAMESPACES)
+        )
     assert rejected.status_code == 422
 
 

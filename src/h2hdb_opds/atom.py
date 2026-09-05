@@ -387,8 +387,8 @@ def _navigation_entry(
     identifier: str,
     description: str,
     updated: datetime,
-    relation: str,
     href: str,
+    additional_relation: str | None = None,
 ) -> ElementTree.Element:
     entry = ElementTree.Element(_atom("entry"))
     _text_element(entry, "title", title)
@@ -397,11 +397,19 @@ def _navigation_entry(
     _text_element(entry, "content", description, attributes={"type": "text"})
     _link(
         entry,
-        relation=relation,
+        relation="subsection",
         href=href,
         media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
         title=title,
     )
+    if additional_relation is not None:
+        _link(
+            entry,
+            relation=additional_relation,
+            href=href,
+            media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
+            title=title,
+        )
     return entry
 
 
@@ -438,7 +446,6 @@ def navigation_feed_document(
             identifier="urn:h2hdb:navigation:all-publications",
             description="Every downloadable publication in the current catalog.",
             updated=revision.published_at,
-            relation="subsection",
             href=_revision_url(
                 request,
                 config,
@@ -453,13 +460,13 @@ def navigation_feed_document(
             identifier="urn:h2hdb:navigation:recently-uploaded",
             description="Up to 128 publications with the latest upload times.",
             updated=revision.published_at,
-            relation=OPDS_SORT_NEW_REL,
             href=_revision_url(
                 request,
                 config,
                 "opds12_recent_uploaded",
                 selected_revision,
             ),
+            additional_relation=OPDS_SORT_NEW_REL,
         )
     )
     feed.append(
@@ -468,7 +475,6 @@ def navigation_feed_document(
             identifier="urn:h2hdb:navigation:recently-downloaded",
             description="Up to 128 publications with the latest download times.",
             updated=revision.published_at,
-            relation="subsection",
             href=_revision_url(
                 request,
                 config,
@@ -713,7 +719,6 @@ def facet_navigation_feed_document(
                 identifier=href,
                 description=f"Browse publications matching {label}.",
                 updated=page.revision.published_at,
-                relation="subsection",
                 href=href,
             )
         )
