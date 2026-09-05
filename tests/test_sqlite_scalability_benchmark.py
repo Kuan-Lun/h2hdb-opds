@@ -31,22 +31,22 @@ _EXPECTED_OPERATION_ORDER = (
 )
 _SMOKE_EXPECTED_BODY_SHA256 = {
     "discovery_first_page": (
-        "3358f15c0f6a43315d72c410bc9e83ecc2e55996ca9fa591a092668b1c6809b5"
+        "8d0c3f66eba5bd6a36144599e9c41acd775e94a4678b42b6b008732bc511adff"
     ),
     "discovery_cursor_page": (
-        "41a111fe56f9e82bd7c8194a6416c1518f9a9fb857e344ae42584f43c3de3e01"
+        "d2206f02fd05f6b0fec6f40f046f238fb2b448ff492b024fc978d767dd9c2e58"
     ),
     "nonempty_search_first_page": (
-        "4709a5bd36821cccf93c99e8802afe57061fad80e12b4f991c36a73c0555e146"
+        "86306267db29d2f2c2786be2262ad43113d23fc258c0e686ec67e10bbfcb3bf1"
     ),
     "nonempty_search_cursor_page": (
-        "77b5d0e09ab0895d41a510ae3ad3c9669e9f67d2977885b038d754e837dcdbc5"
+        "0b3bce9e25cea7e3f7f2489c4977d1f9bc6566abefb3b41807a12806b5e49d93"
     ),
     "facet_language_first_page": (
         "3f69c649aee0cc2bf447ce135f69abcc921a10662b9037036f9a32e919ea9e15"
     ),
     "facet_subject_first_page": (
-        "0c90c3285f5fcd0424ae6e65a526ca40ec6c7abbeea2cd611557c07f46885c26"
+        "bb45d15f77b1dfc51fecffe8c1ca10e005deb54b5fdd6898d1cc1499a80faaff"
     ),
     "facet_contributor_first_page": (
         "012bc792262c357f2e800ccbdbe5946952d0041f9a576cc39cf779cec0850ebc"

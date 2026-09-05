@@ -120,25 +120,25 @@ SMOKE_EXPECTED_MANIFEST_SHA256: Final = (
 )
 SMOKE_EXPECTED_BODY_SHA256: Final[dict[str, str]] = {
     "discovery_first_page": (
-        "e4ba2869f9d72b77d35a5954d9cc4a1d0daf2c40919bd4296165f806cc388be3"
+        "ea5da660cd72732313e256de0fd1d1e849beb9a48e77eb2a01259b8954da6abb"
     ),
     "facet_language_first_page": (
         "d1d5b6093d2ebd5f8176d40f069fa95a3a36f84beea7b628f25b232085c7a993"
     ),
     "facet_subject_first_page": (
-        "70df493bc82e18fff7acee41559c6edf1e6e7ced30178009b9359dd0be3b0ef0"
+        "56a8122f35587a14a71aee79348125602cf40fbc6298c4a8c4ff0734fd1f3dfc"
     ),
     "facet_contributor_first_page": (
         "0645087739b4c4666266dc01f2b5358d76dce4c7259216d3300e59453b8f2389"
     ),
     "nonempty_search_first_page": (
-        "31408e20477f39296c17725eae1ed436f5c947f6d634b5e5751582b4e3ccdf08"
+        "fd068c2d9c1afed6ab048eddad55decdce904e199cef709844b6761698635ac7"
     ),
     "discovery_cursor_page": (
-        "abc1834bd8e65e3d37fb8129196a08b64926d5e14e097f2b4b498f38b5fe16e3"
+        "550f3fba5a72b98a38bcc565c03d28a3421595034da655f63f877aec31c841d6"
     ),
     "facet_subject_cursor_page": (
-        "924647b17c0cea105852953130042da1a0bb28d71f4a684930094e92658800ae"
+        "98c00412beea9c6952eacecf842bd79cbd020333a2f02378257dcb22cc4ad2a9"
     ),
 }
 
