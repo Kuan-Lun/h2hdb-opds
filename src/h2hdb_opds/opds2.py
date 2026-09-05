@@ -15,6 +15,7 @@ from .auth import (
 from .catalog_service import CatalogService
 from .config import OPDSConfig
 from .discovery import discovery_query
+from .search import SEARCH_QUERY_MAXIMUM_BYTES
 from .serialization import (
     OPDS_FEED_MEDIA_TYPE,
     OPDS_PUBLICATION_MEDIA_TYPE,
@@ -69,8 +70,6 @@ def create_opds2_router(
         cursor: str | None,
         limit: int | None,
         revision: int | None,
-        endpoint: str,
-        title: str,
     ) -> JSONResponse:
         selection = catalog.discovery_feed(
             query=query,
@@ -86,8 +85,6 @@ def create_opds2_router(
                 cursor=selection.cursor,
                 query=query,
                 facet_pages=selection.facets,
-                endpoint=endpoint,
-                title=title,
             ),
             media_type=OPDS_FEED_MEDIA_TYPE,
         )
@@ -131,8 +128,6 @@ def create_opds2_router(
             cursor=cursor,
             limit=limit,
             revision=revision,
-            endpoint="list_publications",
-            title="All Publications",
         )
 
     def selected_query(
@@ -165,7 +160,9 @@ def create_opds2_router(
     )
     def search_publications(
         request: Request,
-        query: Annotated[str | None, Query(max_length=1024)] = None,
+        query: Annotated[
+            str | None, Query(max_length=SEARCH_QUERY_MAXIMUM_BYTES)
+        ] = None,
         language: Annotated[str | None, Query(max_length=1024)] = None,
         tag: Annotated[str | None, Query(max_length=1024)] = None,
         tag_namespace: Annotated[str | None, Query(max_length=1024)] = None,
@@ -202,12 +199,6 @@ def create_opds2_router(
             cursor=cursor,
             limit=limit,
             revision=revision,
-            endpoint="search_publications",
-            title=(
-                "Search Results"
-                if selected.search is not None
-                else "Browse Publications"
-            ),
         )
 
     @protected.get(
@@ -218,7 +209,9 @@ def create_opds2_router(
     def facet_values(
         request: Request,
         facet: str,
-        query: Annotated[str | None, Query(max_length=1024)] = None,
+        query: Annotated[
+            str | None, Query(max_length=SEARCH_QUERY_MAXIMUM_BYTES)
+        ] = None,
         language: Annotated[str | None, Query(max_length=1024)] = None,
         tag: Annotated[str | None, Query(max_length=1024)] = None,
         tag_namespace: Annotated[str | None, Query(max_length=1024)] = None,

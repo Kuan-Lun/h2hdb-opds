@@ -25,6 +25,7 @@ from h2hdb import (
     CatalogRevision,
     CatalogRevisionNotFoundError,
     CatalogSubject,
+    CatalogTimestampRange,
     StorageObjectDescriptor,
     StorageObjectKey,
     catalog_search_field_lexemes,
@@ -144,12 +145,40 @@ class FakeCatalog:
             }
             if not set(query.search_lexemes).issubset(searchable_lexemes):
                 return False
+        if query.title is not None:
+            title_lexemes = {
+                lexeme
+                for field in (publication.title, publication.source_title)
+                for lexeme in catalog_search_field_lexemes(field)
+            }
+            if not set(query.title_lexemes).issubset(title_lexemes):
+                return False
+        if query.gid is not None and publication.gid != query.gid:
+            return False
+        if not FakeCatalog._matches_range(publication.published_at, query.uploaded):
+            return False
+        if not FakeCatalog._matches_range(publication.downloaded_at, query.downloaded):
+            return False
+        if query.pages is not None and (
+            not publication.artifacts
+            or (
+                query.pages.minimum is not None
+                and publication.page_count < query.pages.minimum
+            )
+            or (
+                query.pages.maximum is not None
+                and publication.page_count > query.pages.maximum
+            )
+        ):
+            return False
         if query.language is not None and publication.language != query.language:
             return False
-        if query.subject is not None and not any(
-            subject.name == query.subject.value
-            and subject.code == query.subject.namespace
-            for subject in publication.subjects
+        if any(
+            not any(
+                subject.name == selected.value and subject.code == selected.namespace
+                for subject in publication.subjects
+            )
+            for selected in query.subjects
         ):
             return False
         if query.contributor is not None and not any(
@@ -159,6 +188,13 @@ class FakeCatalog:
         ):
             return False
         return True
+
+    @staticmethod
+    def _matches_range(value: datetime, selected: CatalogTimestampRange | None) -> bool:
+        return selected is None or (
+            (selected.start is None or value >= selected.start)
+            and (selected.end is None or value < selected.end)
+        )
 
     def discover_publications(
         self,
@@ -273,7 +309,7 @@ class FakeCatalog:
         if facet is CatalogFacetKind.LANGUAGE:
             effective_query = replace(query, language=None)
         elif facet is CatalogFacetKind.SUBJECT:
-            effective_query = replace(query, subject=None)
+            effective_query = replace(query, subjects=())
         elif facet is CatalogFacetKind.CONTRIBUTOR:
             effective_query = replace(query, contributor=None)
         for publication in self._publications_at(revision):

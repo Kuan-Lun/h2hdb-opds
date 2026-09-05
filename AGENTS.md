@@ -175,7 +175,8 @@ path 均不得呼叫 `migrate()`。
 - `config.py` 擁有 frozen OPDS/server/authentication/core config models；
   `app.py` 負責 lifespan、exception mapping 與 composition；
   `catalog_service.py` 負責兩版共用的 bounded revision-pinned reads；
-  `discovery.py` 負責 protocol-neutral exact filter/query mapping；
+  `search.py` 負責 bounded DSL parse/canonical render，`discovery.py` 負責
+  protocol-neutral exact filter/query mapping；
   `opds12.py`/`atom.py` 與 `opds2.py`/`serialization.py` 分別負責協定 routes
   與 serialization；`auth.py` 負責 Basic auth 與 OPDS 2 authentication
   document；`acquisition.py` 負責 sealed extent responses；`media.py` 負責
@@ -194,9 +195,25 @@ path 均不得呼叫 `migrate()`。
   `query`，舊 `q` 必須回 422，不保留 alias。`tag` 與 `tag_namespace`、
   `contributor` 與 `role` 分別必須成對。Facet filter bytes 必須 exact
   round-trip，不得 trim、Unicode normalize 或 collapse whitespace。Facet values
-  必須 bounded paged，超過第一個 window 時提供 followable next/More link。Search
-  endpoint 必須拒絕 absent、blank、無 searchable lexeme 與超過 core lexeme 上限的
-  query；無 free-text 的 facet browse 使用 publications route。
+  必須 bounded paged，超過第一個 window 時提供 followable next/More link。
+- 兩版 search 共用 typed AND DSL：bare text、`title:`、`gid:`、`tag:namespace:value`、
+  `uploaded:`、`downloaded:` 與 `pages:`。純數字保持 text；title 只比對 display/source
+  title authority。Quoted value 只負責值分組與 escaping，不宣稱 phrase matching。
+  未知 ASCII field prefix、malformed syntax、absent、blank 或無有效條件的 query
+  回 422；合法 filter-only query 不要求 free-text lexeme。
+- 多 tag 使用 `CatalogDiscoveryQuery.subjects` tuple，全部 AND；HTTP 單 tag pair
+  與 DSL tags 合併、exact 去重，不得保留 singular `subject` alias。Scalar field 不得
+  重複；多個 title clause 合併 AND。Dates 使用 UTC calendar days，inclusive 上界日期
+  轉成下一日 exclusive midnight；pages 使用 sealed artifact actual page count 的
+  inclusive 0..4096 bounds，不從 source metadata 或 request-time scanning 推導。
+- 完整 DSL transport 以 128 KiB UTF-8 bytes 與最多 32 clauses bounded；core 的
+  text/title 各 1024 canonical-NFD UTF-8 bytes、合計 16 field-scoped lexemes、16 exact
+  tags 及每個 tag namespace/value 128/1024 UTF-8 bytes bounds 仍須維持。Transport
+  budget 必須容納合法 typed query 與 facet replacement 的完整 quote expansion。
+  Self/first/next/facet/More links 由 typed query 重新產生 canonical DSL，不保存 raw
+  caller syntax 作為 authority。Subject facet clear/reselect 清除整個 tag family，
+  保留其他 typed conditions；無 DSL condition 時 canonical links 使用 publications
+  route，有 DSL condition 時使用 search route。
 - Discovery 是 acquisition-only surface。revision `artifact_count=0` 時，即使
   `publication_count>0` 也直接產生 schema-valid empty discovery/facets/recent；
   `artifact_count=publication_count` 時每個 publication 必須有 artifact；其他

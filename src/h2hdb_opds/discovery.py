@@ -1,8 +1,11 @@
 __all__ = [
     "discovery_query",
     "discovery_query_parameters",
+    "facet_value_is_selected",
     "query_with_facet",
 ]
+
+from dataclasses import replace
 
 from h2hdb import (
     CatalogContributorFilter,
@@ -12,18 +15,15 @@ from h2hdb import (
     CatalogSubjectFilter,
 )
 
+from .search import parse_search_query, render_search_query
 
-def _normalized_search(value: str | None) -> str | None:
+
+def _exact_filter(
+    value: str | None, *, field: str, allow_whitespace: bool = False
+) -> str | None:
     if value is None:
         return None
-    normalized = " ".join(value.split())
-    return normalized or None
-
-
-def _exact_filter(value: str | None, *, field: str) -> str | None:
-    if value is None:
-        return None
-    if not value.strip():
+    if not value or (not allow_whitespace and not value.strip()):
         raise ValueError(f"{field} must not be blank")
     if len(value.encode("utf-8", errors="strict")) > 1024:
         raise ValueError(f"{field} exceeds 1024 UTF-8 bytes")
@@ -40,14 +40,15 @@ def discovery_query(
     contributor: str | None,
     role: str | None,
 ) -> CatalogDiscoveryQuery:
-    normalized_search = _normalized_search(search)
-    if required_search_field is not None and normalized_search is None:
+    if required_search_field is not None and (search is None or not search.strip()):
         raise ValueError(f"{required_search_field} must not be blank")
+    parsed = CatalogDiscoveryQuery() if search is None else parse_search_query(search)
     selected_language = _exact_filter(language, field="language")
-    selected_tag = _exact_filter(tag, field="tag")
+    selected_tag = _exact_filter(tag, field="tag", allow_whitespace=True)
     selected_tag_namespace = _exact_filter(
         tag_namespace,
         field="tag_namespace",
+        allow_whitespace=True,
     )
     if (selected_tag is None) != (selected_tag_namespace is None):
         raise ValueError("tag and tag_namespace must be provided together")
@@ -63,19 +64,20 @@ def discovery_query(
             role=selected_role,
         )
     )
-    return CatalogDiscoveryQuery(
-        search=normalized_search,
+    subjects = parsed.subjects
+    if selected_tag is not None and selected_tag_namespace is not None:
+        subjects = (
+            *subjects,
+            CatalogSubjectFilter(namespace=selected_tag_namespace, value=selected_tag),
+        )
+    query = replace(
+        parsed,
         language=selected_language,
-        subject=(
-            None
-            if selected_tag is None or selected_tag_namespace is None
-            else CatalogSubjectFilter(
-                namespace=selected_tag_namespace,
-                value=selected_tag,
-            )
-        ),
+        subjects=tuple(dict.fromkeys(subjects)),
         contributor=contributor_filter,
     )
+    render_search_query(query)
+    return query
 
 
 def discovery_query_parameters(
@@ -84,13 +86,11 @@ def discovery_query_parameters(
     search_parameter: str = "q",
 ) -> dict[str, str]:
     parameters: dict[str, str] = {}
-    if query.search is not None:
-        parameters[search_parameter] = query.search
+    search = render_search_query(query)
+    if search is not None:
+        parameters[search_parameter] = search
     if query.language is not None:
         parameters["language"] = query.language
-    if query.subject is not None:
-        parameters["tag"] = query.subject.value
-        parameters["tag_namespace"] = query.subject.namespace
     if query.contributor is not None:
         parameters["contributor"] = query.contributor.name
         parameters["role"] = query.contributor.role
@@ -103,19 +103,21 @@ def query_with_facet(
     value: CatalogFacetValue | None,
 ) -> CatalogDiscoveryQuery:
     language = query.language
-    subject = query.subject
+    subjects = query.subjects
     contributor = query.contributor
     if facet is CatalogFacetKind.LANGUAGE:
         language = None if value is None else value.value
     elif facet is CatalogFacetKind.SUBJECT:
         if value is not None and value.namespace is None:
             raise ValueError("subject facet value is missing its namespace")
-        subject = (
-            None
+        subjects = (
+            ()
             if value is None
-            else CatalogSubjectFilter(
-                namespace=value.namespace or "",
-                value=value.value,
+            else (
+                CatalogSubjectFilter(
+                    namespace=value.namespace or "",
+                    value=value.value,
+                ),
             )
         )
     else:
@@ -127,9 +129,31 @@ def query_with_facet(
                 role=value.role or "contributor",
             )
         )
-    return CatalogDiscoveryQuery(
-        search=query.search,
+    return replace(
+        query,
         language=language,
-        subject=subject,
+        subjects=subjects,
         contributor=contributor,
+    )
+
+
+def facet_value_is_selected(
+    query: CatalogDiscoveryQuery,
+    facet: CatalogFacetKind,
+    value: CatalogFacetValue | None,
+) -> bool:
+    if facet is CatalogFacetKind.LANGUAGE:
+        return query.language == (None if value is None else value.value)
+    if facet is CatalogFacetKind.SUBJECT:
+        if value is None:
+            return not query.subjects
+        return len(query.subjects) == 1 and (
+            query.subjects[0].namespace == value.namespace
+            and query.subjects[0].value == value.value
+        )
+    if value is None:
+        return query.contributor is None
+    return query.contributor is not None and (
+        query.contributor.name == value.value
+        and query.contributor.role == (value.role or "contributor")
     )

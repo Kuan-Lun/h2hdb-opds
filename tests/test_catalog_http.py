@@ -9,6 +9,7 @@ from h2hdb import (
     CatalogFacetKind,
     CatalogRevision,
     CatalogSubject,
+    CatalogSubjectFilter,
 )
 from pydantic import SecretStr
 
@@ -24,6 +25,7 @@ from h2hdb_opds.publication import (
     OPDS_OPEN_ACCESS_REL,
     publication_identifier,
 )
+from h2hdb_opds.search import parse_search_query
 from h2hdb_opds.serialization import (
     OPDS_FEED_MEDIA_TYPE,
     OPDS_PUBLICATION_MEDIA_TYPE,
@@ -362,8 +364,9 @@ async def test_subject_facets_round_trip_exact_namespace_and_value(
         )
 
     parameters = parse_qs(urlsplit(selected["href"]).query)
-    assert parameters["tag"] == [subject.name]
-    assert parameters["tag_namespace"] == [subject.code]
+    assert parse_search_query(parameters["query"][0]).subjects == (
+        CatalogSubjectFilter(namespace=subject.code or "", value=subject.name),
+    )
     assert [
         item["metadata"]["identifier"] for item in filtered.json()["publications"]
     ] == [publication.publication_id]
@@ -374,9 +377,13 @@ async def test_subject_facets_round_trip_exact_namespace_and_value(
     )
 
 
+@pytest.mark.parametrize(
+    "query", (None, "gid:1001 title:Alpha pages:1 uploaded:2026-08-05")
+)
 async def test_large_facet_sets_have_a_bounded_followable_next_page(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
+    query: str | None,
 ) -> None:
     subjects = tuple(
         CatalogSubject(name=f"tag-{index:03d}", scheme="tag", code=f"t{index:03d}")
@@ -386,7 +393,10 @@ async def test_large_facet_sets_have_a_bounded_followable_next_page(
     app = create_app(opds_config, FakeCatalog((publication,)))
 
     async with app_client(app) as client:
-        search = await client.get("/opds/v2/publications")
+        search = await client.get(
+            "/opds/v2/publications" if query is None else "/opds/v2/search",
+            params={} if query is None else {"query": query},
+        )
         tag_facet = next(
             facet
             for facet in search.json()["facets"]

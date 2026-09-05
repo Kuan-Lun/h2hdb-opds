@@ -54,6 +54,7 @@ from h2hdb import (
     CatalogRevision,
     CatalogRevisionNotFoundError,
     CatalogSubject,
+    CatalogTimestampRange,
     StorageObjectDescriptor,
     StorageObjectKey,
     catalog_search_field_lexemes,
@@ -115,29 +116,29 @@ _SOURCE_HASH_CHUNK_BYTES: Final = 1024 * 1024
 # These values are an intentional benchmark-workload contract. Updating either
 # constant requires reviewing the canonical authority or serialized OPDS change.
 SMOKE_EXPECTED_MANIFEST_SHA256: Final = (
-    "6bfceaef01795b082a04f644a86bcff3e7e84f33b10730fef789422e38f73230"
+    "f9262a72d0ad2edf540a3e862226040390b4abb79e5a8cf7b4b4e923f896074e"
 )
 SMOKE_EXPECTED_BODY_SHA256: Final[dict[str, str]] = {
     "discovery_first_page": (
-        "5fc555838f9a62126f9027edf8a81605551511be61211ff615f863d3d6519662"
+        "e4ba2869f9d72b77d35a5954d9cc4a1d0daf2c40919bd4296165f806cc388be3"
     ),
     "facet_language_first_page": (
         "d1d5b6093d2ebd5f8176d40f069fa95a3a36f84beea7b628f25b232085c7a993"
     ),
     "facet_subject_first_page": (
-        "18d8bf157dc83eac40a33ff0089aea8ef820abb72c873e2b650ad50f5d549bbb"
+        "70df493bc82e18fff7acee41559c6edf1e6e7ced30178009b9359dd0be3b0ef0"
     ),
     "facet_contributor_first_page": (
-        "58e4152ec52364814c59a1a84e133c5ade522be9b615a0eb99c50580190795cb"
+        "0645087739b4c4666266dc01f2b5358d76dce4c7259216d3300e59453b8f2389"
     ),
     "nonempty_search_first_page": (
-        "4122d324fd5c26781fb4cd6d424d0bce211991a6419eeba0f7e3142a5825b83b"
+        "31408e20477f39296c17725eae1ed436f5c947f6d634b5e5751582b4e3ccdf08"
     ),
     "discovery_cursor_page": (
-        "95d96bc96118672072016ea84b01f8119ae5bf1d7122fded4c4b33e11e9711ce"
+        "abc1834bd8e65e3d37fb8129196a08b64926d5e14e097f2b4b498f38b5fe16e3"
     ),
     "facet_subject_cursor_page": (
-        "a520d24c02bd2c6605fbd33c6041213a17d40cb948ea0974468781bd76955499"
+        "924647b17c0cea105852953130042da1a0bb28d71f4a684930094e92658800ae"
     ),
 }
 
@@ -534,15 +535,33 @@ def _update_query_receipt(
     query: CatalogDiscoveryQuery,
 ) -> None:
     receipt.optional_text(f"{prefix}.search", query.search)
+    receipt.optional_text(f"{prefix}.title", query.title)
+    receipt.optional_text(
+        f"{prefix}.gid", None if query.gid is None else str(query.gid)
+    )
     receipt.optional_text(f"{prefix}.language", query.language)
-    receipt.optional_text(
-        f"{prefix}.subject.namespace",
-        None if query.subject is None else query.subject.namespace,
-    )
-    receipt.optional_text(
-        f"{prefix}.subject.value",
-        None if query.subject is None else query.subject.value,
-    )
+    receipt.integer(f"{prefix}.subjects.count", len(query.subjects))
+    for position, subject in enumerate(query.subjects):
+        receipt.text(f"{prefix}.subjects.{position}.namespace", subject.namespace)
+        receipt.text(f"{prefix}.subjects.{position}.value", subject.value)
+    for name, interval in (
+        ("uploaded", query.uploaded),
+        ("downloaded", query.downloaded),
+    ):
+        for label, bound in (
+            ("start", None if interval is None else interval.start),
+            ("end", None if interval is None else interval.end),
+        ):
+            receipt.optional_text(
+                f"{prefix}.{name}.{label}", None if bound is None else bound.isoformat()
+            )
+    for label, page_bound in (
+        ("minimum", None if query.pages is None else query.pages.minimum),
+        ("maximum", None if query.pages is None else query.pages.maximum),
+    ):
+        receipt.optional_text(
+            f"{prefix}.pages.{label}", None if page_bound is None else str(page_bound)
+        )
     receipt.optional_text(
         f"{prefix}.contributor.name",
         None if query.contributor is None else query.contributor.name,
@@ -554,6 +573,9 @@ def _update_query_receipt(
     receipt.integer(f"{prefix}.search_lexemes.count", len(query.search_lexemes))
     for position, lexeme in enumerate(query.search_lexemes):
         receipt.binary(f"{prefix}.search_lexemes.{position}", lexeme)
+    receipt.integer(f"{prefix}.title_lexemes.count", len(query.title_lexemes))
+    for position, lexeme in enumerate(query.title_lexemes):
+        receipt.binary(f"{prefix}.title_lexemes.{position}", lexeme)
 
 
 def _update_storage_object_receipt(
@@ -865,6 +887,14 @@ class SyntheticCatalogReader:
             )
             for publication in self._publications
         )
+        self._title_lexemes = tuple(
+            frozenset(
+                lexeme
+                for field in (publication.title, publication.source_title)
+                for lexeme in catalog_search_field_lexemes(field)
+            )
+            for publication in self._publications
+        )
         self._selections: dict[
             str,
             tuple[tuple[int, CatalogPublication], ...],
@@ -936,16 +966,48 @@ class SyntheticCatalogReader:
             self._searchable_lexemes[position]
         ):
             return False
+        if query.title is not None and not set(query.title_lexemes).issubset(
+            self._title_lexemes[position]
+        ):
+            return False
+        if query.gid is not None and publication.gid != query.gid:
+            return False
+        if not self._matches_range(publication.published_at, query.uploaded):
+            return False
+        if not self._matches_range(publication.downloaded_at, query.downloaded):
+            return False
+        if query.pages is not None and (
+            not publication.artifacts
+            or (
+                query.pages.minimum is not None
+                and publication.page_count < query.pages.minimum
+            )
+            or (
+                query.pages.maximum is not None
+                and publication.page_count > query.pages.maximum
+            )
+        ):
+            return False
         if query.language is not None and publication.language != query.language:
             return False
-        if query.subject is not None and not any(
-            item.name == query.subject.value and item.code == query.subject.namespace
-            for item in publication.subjects
+        if any(
+            not any(
+                item.name == selected.value and item.code == selected.namespace
+                for item in publication.subjects
+            )
+            for selected in query.subjects
         ):
             return False
         return query.contributor is None or any(
             item.name == query.contributor.name and item.role == query.contributor.role
             for item in publication.contributors
+        )
+
+    @staticmethod
+    def _matches_range(value: datetime, selected: CatalogTimestampRange | None) -> bool:
+        return selected is None or (
+            (selected.start is None or value >= selected.start)
+            and (selected.end is None or value < selected.end)
         )
 
     def _selection(
@@ -975,7 +1037,7 @@ class SyntheticCatalogReader:
         if facet is CatalogFacetKind.LANGUAGE:
             return replace(query, language=None)
         if facet is CatalogFacetKind.SUBJECT:
-            return replace(query, subject=None)
+            return replace(query, subjects=())
         return replace(query, contributor=None)
 
     def _facet_values(

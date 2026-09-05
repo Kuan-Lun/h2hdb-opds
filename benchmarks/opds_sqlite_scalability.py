@@ -368,8 +368,8 @@ def load_core_fixture(
         field="receipt.schema.schema_version",
         minimum=1,
     )
-    if schema_epoch != 3 or schema_version != 2:
-        raise FixtureReceiptError("core fixture must use schema epoch 3/version 2")
+    if schema_epoch != 3 or schema_version != 3:
+        raise FixtureReceiptError("core fixture must use schema epoch 3/version 3")
     if (
         schema.get("state") != "READY"
         or schema.get("full_ready_audit_passed") is not True

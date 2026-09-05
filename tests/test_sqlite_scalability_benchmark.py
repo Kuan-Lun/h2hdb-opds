@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -30,22 +31,22 @@ _EXPECTED_OPERATION_ORDER = (
 )
 _SMOKE_EXPECTED_BODY_SHA256 = {
     "discovery_first_page": (
-        "11a65e2df97ddc503703e094fda7e9b212907348fd5214d646a86cbdf273a62e"
+        "3358f15c0f6a43315d72c410bc9e83ecc2e55996ca9fa591a092668b1c6809b5"
     ),
     "discovery_cursor_page": (
-        "b37765d2d67f9c499a126d5e4bba5e03f0b48c371ac8fc2729acb7c0a67cbd9d"
+        "41a111fe56f9e82bd7c8194a6416c1518f9a9fb857e344ae42584f43c3de3e01"
     ),
     "nonempty_search_first_page": (
-        "aaa356f5aab73382d2758bd8bb19c8f0cf92afa5cf1bafc8b389e506b274fd37"
+        "4709a5bd36821cccf93c99e8802afe57061fad80e12b4f991c36a73c0555e146"
     ),
     "nonempty_search_cursor_page": (
-        "bc5351ac38d1b5ad3091c03924ec0d0a443ba152e5484efe4e77f714f4cf7cdb"
+        "77b5d0e09ab0895d41a510ae3ad3c9669e9f67d2977885b038d754e837dcdbc5"
     ),
     "facet_language_first_page": (
         "3f69c649aee0cc2bf447ce135f69abcc921a10662b9037036f9a32e919ea9e15"
     ),
     "facet_subject_first_page": (
-        "1b474850976186734e1528f0aebe8ae17def55befd2e373bb9aaa7b1152358e1"
+        "0c90c3285f5fcd0424ae6e65a526ca40ec6c7abbeea2cd611557c07f46885c26"
     ),
     "facet_contributor_first_page": (
         "012bc792262c357f2e800ccbdbe5946952d0041f9a576cc39cf779cec0850ebc"
@@ -57,12 +58,22 @@ _SMOKE_EXPECTED_BODY_SHA256 = {
 def core_smoke_fixture(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> tuple[Path, Path]:
-    raw_init = h2hdb.__file__
-    if raw_init is None:
-        pytest.skip("the imported h2hdb package has no locatable source tree")
-    core_root = Path(raw_init).resolve(strict=True).parents[2]
+    configured_root = os.environ.get("H2HDB_CORE_REPOSITORY")
+    if configured_root is not None:
+        if not configured_root.strip():
+            pytest.fail("H2HDB_CORE_REPOSITORY must name a core checkout")
+        core_root = Path(configured_root).expanduser().resolve(strict=True)
+    else:
+        raw_init = h2hdb.__file__
+        if raw_init is None:
+            pytest.skip("the imported h2hdb package has no locatable source tree")
+        core_root = Path(raw_init).resolve(strict=True).parents[2]
     generator = core_root / "benchmarks" / "sqlite_catalog_scalability.py"
     if not generator.is_file():
+        if configured_root is not None:
+            pytest.fail(
+                f"H2HDB_CORE_REPOSITORY lacks the fixture generator: {generator}"
+            )
         pytest.skip("the installed h2hdb wheel does not include its fixture generator")
     root = tmp_path_factory.mktemp("core-sqlite-scalability")
     database = root / "catalog.sqlite3"
@@ -101,7 +112,7 @@ def test_core_fixture_receipt_is_exactly_bound_to_ready_database(
     assert authority.fixture_mode == "manifest-bound-sql"
     assert authority.profile == "smoke"
     assert authority.schema_epoch == 3
-    assert authority.schema_version == 2
+    assert authority.schema_version == 3
     assert authority.publication_count == _SMOKE_PUBLICATION_COUNT
     assert authority.artifact_count == _SMOKE_PUBLICATION_COUNT
     assert authority.acquisition_descriptor_count == _SMOKE_PUBLICATION_COUNT
@@ -266,14 +277,24 @@ async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
     assert provenance["manifest_schema"] == "h2hdb-opds-source-manifest-v2"
     assert provenance["canonical_paths_are_relative"] is True
     components = cast("list[dict[str, object]]", provenance["components"])
-    assert all(component["project_version"] for component in components)
+    opds_component = next(
+        component for component in components if component["name"] == "h2hdb-opds"
+    )
+    core_component = next(
+        component for component in components if component["name"] == "h2hdb-import"
+    )
+    assert opds_component["project_version"] is not None
+    assert core_component["located"] is True
     logical_paths = {
         cast("str", source["logical_path"])
         for component in components
         for source in cast("list[dict[str, object]]", component["files"])
     }
     assert "h2hdb-opds/benchmarks/opds_sqlite_scalability.py" in logical_paths
-    assert "h2hdb/pyproject.toml" in logical_paths
+    assert "h2hdb/__init__.py" in logical_paths
+    assert ("h2hdb/pyproject.toml" in logical_paths) is (
+        core_component["project_version"] is not None
+    )
     assert all(not PurePosixPath(path).is_absolute() for path in logical_paths)
 
     determinism = cast("dict[str, object]", report["determinism"])

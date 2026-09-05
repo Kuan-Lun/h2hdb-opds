@@ -28,9 +28,14 @@ from h2hdb import (
 from .auth import AUTHENTICATION_DOCUMENT_REL, AUTHENTICATION_MEDIA_TYPE
 from .config import OPDSConfig
 from .cursor import encode_discovery_cursor, encode_facet_cursor
-from .discovery import discovery_query_parameters, query_with_facet
+from .discovery import (
+    discovery_query_parameters,
+    facet_value_is_selected,
+    query_with_facet,
+)
 from .language import normalize_bcp47
 from .publication import acquisition_relation, publication_identifier
+from .search import has_search_query
 from .uri import optional_uri
 from .urls import external_url
 
@@ -334,13 +339,16 @@ def publication_document(
     return document
 
 
+def _discovery_endpoint(query: CatalogDiscoveryQuery) -> str:
+    return "search_publications" if has_search_query(query) else "list_publications"
+
+
 def _page_url(
     request: Request,
     config: OPDSConfig,
     page: CatalogDiscoveryPage,
     *,
     cursor: CatalogDiscoveryCursor | None,
-    endpoint: str,
     query: CatalogDiscoveryQuery,
 ) -> str:
     parameters: dict[str, str | int] = {
@@ -350,7 +358,9 @@ def _page_url(
     }
     if cursor is not None:
         parameters["cursor"] = encode_discovery_cursor(cursor)
-    return _url_with_query(external_url(request, config, endpoint), parameters)
+    return _url_with_query(
+        external_url(request, config, _discovery_endpoint(query)), parameters
+    )
 
 
 def _pagination_links(
@@ -359,7 +369,6 @@ def _pagination_links(
     page: CatalogDiscoveryPage,
     *,
     cursor: CatalogDiscoveryCursor | None,
-    endpoint: str,
     query: CatalogDiscoveryQuery,
 ) -> list[dict[str, object]]:
     links: list[dict[str, object]] = [
@@ -370,7 +379,6 @@ def _pagination_links(
                 config,
                 page,
                 cursor=cursor,
-                endpoint=endpoint,
                 query=query,
             ),
             "type": OPDS_FEED_MEDIA_TYPE,
@@ -382,7 +390,6 @@ def _pagination_links(
                 config,
                 page,
                 cursor=None,
-                endpoint=endpoint,
                 query=query,
             ),
             "type": OPDS_FEED_MEDIA_TYPE,
@@ -397,7 +404,6 @@ def _pagination_links(
                     config,
                     page,
                     cursor=page.next_cursor,
-                    endpoint=endpoint,
                     query=query,
                 ),
                 "type": OPDS_FEED_MEDIA_TYPE,
@@ -417,7 +423,7 @@ def _facet_link(
     count: int | None,
     active: bool,
 ) -> dict[str, object]:
-    endpoint = "list_publications" if query.search is None else "search_publications"
+    endpoint = _discovery_endpoint(query)
     link: dict[str, object] = {
         "href": _url_with_query(
             external_url(request, config, endpoint),
@@ -448,17 +454,6 @@ def _facet_document(
 ) -> dict[str, object] | None:
     if not page.values:
         return None
-    selected: str | None
-    selected_namespace: str | None = None
-    selected_role: str | None = None
-    if page.facet is CatalogFacetKind.LANGUAGE:
-        selected = query.language
-    elif page.facet is CatalogFacetKind.SUBJECT:
-        selected = None if query.subject is None else query.subject.value
-        selected_namespace = None if query.subject is None else query.subject.namespace
-    else:
-        selected = None if query.contributor is None else query.contributor.name
-        selected_role = None if query.contributor is None else query.contributor.role
     links = [
         _facet_link(
             request,
@@ -468,15 +463,10 @@ def _facet_document(
             limit,
             title="All",
             count=None,
-            active=selected is None,
+            active=facet_value_is_selected(query, page.facet, None),
         )
     ]
     for value in page.values:
-        active = selected == value.value
-        if page.facet is CatalogFacetKind.SUBJECT:
-            active = active and selected_namespace == value.namespace
-        if page.facet is CatalogFacetKind.CONTRIBUTOR:
-            active = active and selected_role == (value.role or "contributor")
         links.append(
             _facet_link(
                 request,
@@ -486,7 +476,7 @@ def _facet_document(
                 limit,
                 title=value.label,
                 count=value.publication_count,
-                active=active,
+                active=facet_value_is_selected(query, page.facet, value),
             )
         )
     if page.next_cursor is not None:
@@ -590,9 +580,7 @@ def facet_navigation_document(
         )
 
     clear_query = query_with_facet(query, page.facet, None)
-    clear_endpoint = (
-        "list_publications" if clear_query.search is None else "search_publications"
-    )
+    clear_endpoint = _discovery_endpoint(clear_query)
     navigation: list[dict[str, object]] = [
         {
             "title": f"All {_FACET_TITLES[page.facet]} values",
@@ -609,11 +597,7 @@ def facet_navigation_document(
     ]
     for value in page.values:
         selected_query = query_with_facet(query, page.facet, value)
-        selected_endpoint = (
-            "list_publications"
-            if selected_query.search is None
-            else "search_publications"
-        )
+        selected_endpoint = _discovery_endpoint(selected_query)
         navigation.append(
             {
                 "title": value.label,
@@ -667,21 +651,18 @@ def discovery_document(
     cursor: CatalogDiscoveryCursor | None,
     query: CatalogDiscoveryQuery,
     facet_pages: tuple[CatalogFacetPage, ...],
-    endpoint: str,
-    title: str,
 ) -> dict[str, object]:
     links = _pagination_links(
         request,
         config,
         page,
         cursor=cursor,
-        endpoint=endpoint,
         query=query,
     )
     links.extend(_common_links(request, config, page.revision.revision))
     metadata: dict[str, object] = {
         "@type": "http://schema.org/DataFeed",
-        "title": title,
+        "title": "Search Results" if has_search_query(query) else "All Publications",
         "modified": _format_datetime(page.revision.published_at),
         "itemsPerPage": page.limit,
     }

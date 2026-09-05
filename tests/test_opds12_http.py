@@ -3,7 +3,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 from xml.etree import ElementTree
 
 import pytest
-from h2hdb import CatalogSubject
+from h2hdb import CatalogSubject, CatalogSubjectFilter
 from httpx import Response
 from lxml import etree
 
@@ -20,6 +20,7 @@ from h2hdb_opds.atom import (
     PSE_NAMESPACE,
 )
 from h2hdb_opds.publication import OPDS_OPEN_ACCESS_REL
+from h2hdb_opds.search import parse_search_query
 
 from .fakes import CatalogFixture, FakeCatalog
 from .http_client import app_client
@@ -196,13 +197,26 @@ async def test_opensearch_description_uses_literal_standard_template(
         assert feed.nsmap[None] == ATOM_NAMESPACE
 
 
-@pytest.mark.parametrize("query", ("Alpha", "中文測試 Café & C++ #1", "gid:1834943"))
+@pytest.mark.parametrize(
+    ("query", "title", "canonical"),
+    (
+        ("Alpha", "Alpha", "Alpha"),
+        (
+            "中文測試 Café & C++ #1",
+            "中文測試 Café & C++ #1",
+            '"中文測試 Café & C++ #1"',
+        ),
+        ('"gid:1834943"', "gid:1834943", '"gid:1834943"'),
+    ),
+)
 async def test_opensearch_template_can_be_followed_by_replacing_only_search_terms(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
     query: str,
+    title: str,
+    canonical: str,
 ) -> None:
-    publication = replace(catalog_fixture.publications[0], title=query)
+    publication = replace(catalog_fixture.publications[0], title=title)
     app = create_app(opds_config, FakeCatalog((publication,)))
 
     async with app_client(app) as client:
@@ -221,9 +235,9 @@ async def test_opensearch_template_can_be_followed_by_replacing_only_search_term
         response = await client.get(search_url)
         feed = _xml(response, OPDS12_ACQUISITION_MEDIA_TYPE)
 
-    assert _entry_titles(feed) == [query]
+    assert _entry_titles(feed) == [title]
     assert parse_qs(urlsplit(_link(feed, "self").attrib["href"]).query) == {
-        "q": [query],
+        "q": [canonical],
         "revision": ["7"],
         "limit": ["50"],
     }
@@ -294,18 +308,24 @@ async def test_search_and_atom_facets_preserve_query_and_counts(
         "Tag",
     }
     assert all(
-        parse_qs(urlsplit(link.attrib["href"]).query)["q"] == ["cobalt"]
+        parse_search_query(parse_qs(urlsplit(link.attrib["href"]).query)["q"][0]).search
+        == "cobalt"
         for link in facets
     )
     tag = next(link for link in facets if link.attrib.get("title") == "fantasy")
     tag_parameters = parse_qs(urlsplit(tag.attrib["href"]).query)
-    assert tag_parameters["tag"] == ["fantasy"]
-    assert tag_parameters["tag_namespace"] == ["f"]
+    assert parse_search_query(tag_parameters["q"][0]).subjects == (
+        CatalogSubjectFilter(namespace="f", value="fantasy"),
+    )
 
 
+@pytest.mark.parametrize(
+    "query", (None, "gid:1001 title:Alpha pages:1 uploaded:2026-08-05")
+)
 async def test_atom_large_facet_sets_link_to_bounded_navigation_pages(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
+    query: str | None,
 ) -> None:
     publication = replace(
         catalog_fixture.publications[0],
@@ -322,7 +342,10 @@ async def test_atom_large_facet_sets_link_to_bounded_navigation_pages(
 
     async with app_client(app) as client:
         search = _xml(
-            await client.get("/opds/v1.2/publications"),
+            await client.get(
+                "/opds/v1.2/publications" if query is None else "/opds/v1.2/search",
+                params={} if query is None else {"q": query},
+            ),
             OPDS12_ACQUISITION_MEDIA_TYPE,
         )
         more = next(

@@ -23,6 +23,7 @@ from .auth import BasicAuthenticator
 from .catalog_service import CatalogService
 from .config import OPDSConfig
 from .discovery import discovery_query
+from .search import SEARCH_QUERY_MAXIMUM_BYTES
 
 _INT63_MAX = (1 << 63) - 1
 
@@ -130,8 +131,6 @@ def create_opds12_router(
                 cursor=selection.cursor,
                 query=query,
                 facet_pages=selection.facets,
-                endpoint="opds12_publications",
-                title="All Publications",
             ),
             media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
         )
@@ -167,7 +166,7 @@ def create_opds12_router(
     )
     def search_feed(
         request: Request,
-        q: Annotated[str | None, Query(max_length=1024)] = None,
+        q: Annotated[str | None, Query(max_length=SEARCH_QUERY_MAXIMUM_BYTES)] = None,
         language: Annotated[str | None, Query(max_length=1024)] = None,
         tag: Annotated[str | None, Query(max_length=1024)] = None,
         tag_namespace: Annotated[str | None, Query(max_length=1024)] = None,
@@ -198,7 +197,6 @@ def create_opds12_router(
             limit=limit,
             revision=revision,
         )
-        title = "Search Results" if query.search is not None else "Browse Publications"
         return atom_response(
             request,
             document=acquisition_feed_document(
@@ -208,8 +206,6 @@ def create_opds12_router(
                 cursor=selection.cursor,
                 query=query,
                 facet_pages=selection.facets,
-                endpoint="opds12_search",
-                title=title,
             ),
             media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
         )
@@ -223,7 +219,7 @@ def create_opds12_router(
     def facet_values(
         request: Request,
         facet: str,
-        q: Annotated[str | None, Query(max_length=1024)] = None,
+        q: Annotated[str | None, Query(max_length=SEARCH_QUERY_MAXIMUM_BYTES)] = None,
         language: Annotated[str | None, Query(max_length=1024)] = None,
         tag: Annotated[str | None, Query(max_length=1024)] = None,
         tag_namespace: Annotated[str | None, Query(max_length=1024)] = None,

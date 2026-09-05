@@ -20,8 +20,8 @@ art, thumbnails, downloads and the same current catalog revision.
 
 ## Quick start
 
-This service requires Python 3.14, the H2HDB 0.31 compatibility lane, a database
-built fresh from that lane's epoch 3/schema version 2 manifest and already
+This service requires Python 3.14, the H2HDB 0.32 compatibility lane, a database
+built fresh from that lane's epoch 3/schema version 3 manifest and already
 marked `READY`, the read-only ingest `current` tree, and its sibling
 coordination directory. It never creates or migrates the database.
 
@@ -176,17 +176,55 @@ The description uses a document-local default XML namespace and advertises only
 that expect unprefixed OpenSearch elements and do not expand optional template
 parameters reliably. Language, tag, contributor and page-size parameters remain
 available on the HTTP routes and through concrete facet/pagination links.
-The search endpoint requires a nonblank searchable query. Missing, whitespace-
-only, punctuation-only and over-complex queries return 422 instead of becoming
-an unfiltered All Publications request.
+The search box accepts plain text and field conditions, combined with AND:
 
-Search covers only the display title, source title, contributor names and source
-tag values. It deliberately does not index the summary, publication identifier
-or artifact filename. H2HDB applies its pinned Unicode normalization/case-fold
-tokenizer and requires every distinct query lexeme to occur (AND semantics).
-Queries contain at most 16 distinct searchable lexemes and 1024 canonical-NFD
-UTF-8 bytes. There is no fuzzy matching, stemming, phrase ranking or relevance
-order; results remain in the catalog's stable publication order.
+| Input | Meaning |
+| --- | --- |
+| `不知火 chinese` | Both terms across display/source titles, contributors and tag values |
+| `title:不知火` | Match only the display and source titles |
+| `title:"Alpha Gallery"` | Both title words; quotes group a value, not a phrase |
+| `tag:language:chinese` | Exact namespace and value from source Tags |
+| `tag:artist:"a  b"` | Exact tag value, preserving the two spaces |
+| `tag:language:chinese tag:artist:alice` | Both exact tags must occur |
+| `gid:1834943` | Exact positive gallery ID |
+| `uploaded:2026-09-05` | Source upload time during that UTC calendar day |
+| `downloaded:2026-09-01..2026-09-05` | Source download time during those days, including both dates |
+| `uploaded:2026-09-01..` / `downloaded:..2026-09-05` | Open-ended date ranges |
+| `pages:143` / `pages:40..200` | Sealed artifact page count, exact or inclusive range |
+| `pages:40..` / `pages:..200` | Open-ended page-count ranges |
+
+For example, Panels can submit
+`title:不知火 tag:language:chinese pages:40..200` through the unchanged OpenSearch
+template. A field-only query such as `gid:1834943` needs no additional text.
+Bare `1834943` remains a text keyword. Summary text and CBZ filenames are outside
+the text index. All results use the catalog's stable publication order.
+
+Field names are lowercase. Unknown ASCII field prefixes, missing values,
+unclosed quotes, invalid or reversed ranges, absent/blank queries and queries
+without searchable text or a field condition return 422. Put a whole literal
+term containing a colon in double quotes, such as `"gid:1834943"` or
+`"re:zero"`, to search its text without invoking a field. Both tag namespace
+and value can be quoted independently. Quoted values use JSON string escapes,
+including `\"` and `\\`; exact tag bytes are preserved. Quotes do not enable
+phrase matching. Repeating `title:` adds AND terms; duplicate exact tags are
+deduplicated. Other fields may occur only once.
+
+Dates use `YYYY-MM-DD` and always mean UTC days. The inclusive
+upper date becomes the following day's exclusive midnight boundary. Downloaded
+means the source timestamp sealed in the catalog, not an OPDS download event.
+Page counts are integers from 0 through 4096 and use the sealed artifact's
+actual page count. An item without a sealed artifact does not match a page
+condition, including `pages:0`.
+
+H2HDB uses its pinned Unicode normalization/case-fold tokenizer. Text and title
+conditions each allow 1024 canonical-NFD UTF-8 bytes and share a maximum of 16
+distinct field-scoped lexemes. A tag namespace permits 128 UTF-8 bytes and its
+value 1024; queries allow up to 16 distinct exact tags. The complete DSL has a
+bounded 128 KiB UTF-8 transport budget and at most 32 input clauses. The transport
+budget includes quote escaping and allows generated facet and pagination links
+to preserve every valid condition. This is a server limit; readers and reverse
+proxies can impose smaller URL limits. There is no fuzzy matching, stemming, phrase
+ranking or relevance order.
 
 Optional filters are:
 
@@ -201,6 +239,14 @@ together. Registered roles are `artist`, `author`, `cosplayer`, `group`,
 `illustrator` and `uploader`. Filter bytes are not trimmed, Unicode-normalized
 or whitespace-collapsed; following the generated facet link is the safest way
 to preserve an exact value.
+
+An HTTP tag pair combines with all DSL tags using AND. Generated links encode
+text, title, GID, tags, dates and page counts in one canonical `q`/`query` value;
+language and contributor remain exact HTTP parameters. Selecting a tag facet
+replaces the entire selected tag family; its All link clears that family.
+Facet counts ignore their own family's selected filters while retaining all
+other conditions, including title, GID, timestamps and page count. Pagination,
+facet selection and More links keep every remaining condition and the revision.
 
 `/publications` also accepts these exact filters without a free-text query, so a
 reader can browse and follow facets from All Publications. Each discovery feed
@@ -394,6 +440,18 @@ Run the canonical local gates:
 ./scripts/check-fast.sh
 ./scripts/check-full.sh
 ```
+
+When testing an installed core wheel, an explicitly supplied core checkout can
+provide the optional SQLite benchmark fixture generator:
+
+```bash
+H2HDB_CORE_REPOSITORY=/path/to/h2hdb ./scripts/check-full.sh
+```
+
+The application still imports the installed core package. An invalid explicit
+checkout fails the tests. Without this setting, the benchmark tests use a
+locatable core source package or report that its optional generator is absent;
+rebuilding this project does not require a sibling checkout.
 
 The full gate verifies immutable schema hashes; compiles both the unmodified and
 strict-runtime OPDS 1.2 grammars plus the OPDS 2 closure with no network access;

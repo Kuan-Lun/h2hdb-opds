@@ -42,10 +42,12 @@ from .config import OPDSConfig
 from .cursor import encode_discovery_cursor, encode_facet_cursor
 from .discovery import (
     discovery_query_parameters,
+    facet_value_is_selected,
     query_with_facet,
 )
 from .language import normalize_bcp47
 from .publication import acquisition_relation, publication_identifier
+from .search import has_search_query
 from .uri import optional_uri
 from .urls import external_url
 
@@ -486,12 +488,15 @@ def navigation_feed_document(
     return _serialized(feed)
 
 
+def _discovery_endpoint(query: CatalogDiscoveryQuery) -> str:
+    return "opds12_search" if has_search_query(query) else "opds12_publications"
+
+
 def _page_url(
     request: Request,
     config: OPDSConfig,
     page: CatalogDiscoveryPage,
     *,
-    endpoint: str,
     cursor: CatalogDiscoveryCursor | None,
     query: CatalogDiscoveryQuery,
 ) -> str:
@@ -502,7 +507,9 @@ def _page_url(
     }
     if cursor is not None:
         parameters["cursor"] = encode_discovery_cursor(cursor)
-    return _url_with_query(external_url(request, config, endpoint), parameters)
+    return _url_with_query(
+        external_url(request, config, _discovery_endpoint(query)), parameters
+    )
 
 
 def _facet_links(
@@ -511,7 +518,6 @@ def _facet_links(
     config: OPDSConfig,
     pages: tuple[CatalogFacetPage, ...],
     *,
-    endpoint: str,
     query: CatalogDiscoveryQuery,
     revision: int,
     limit: int,
@@ -526,20 +532,12 @@ def _facet_links(
             "limit": limit,
             "revision": revision,
         }
-        selected_value = {
-            CatalogFacetKind.LANGUAGE: query.language,
-            CatalogFacetKind.SUBJECT: (
-                None if query.subject is None else query.subject.value
-            ),
-            CatalogFacetKind.CONTRIBUTOR: (
-                None if query.contributor is None else query.contributor.name
-            ),
-        }[page.facet]
         _link(
             feed,
             relation=OPDS_FACET_REL,
             href=_url_with_query(
-                external_url(request, config, endpoint), clear_parameters
+                external_url(request, config, _discovery_endpoint(clear_query)),
+                clear_parameters,
             ),
             media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
             title="All",
@@ -547,7 +545,7 @@ def _facet_links(
                 f"{{{OPDS_NAMESPACE}}}facetGroup": title,
                 **(
                     {f"{{{OPDS_NAMESPACE}}}activeFacet": "true"}
-                    if selected_value is None
+                    if facet_value_is_selected(query, page.facet, None)
                     else {}
                 ),
             },
@@ -559,18 +557,13 @@ def _facet_links(
                 "limit": limit,
                 "revision": revision,
             }
-            active = selected_value == value.value
-            if page.facet is CatalogFacetKind.SUBJECT and query.subject:
-                active = active and query.subject.namespace == value.namespace
-            if page.facet is CatalogFacetKind.CONTRIBUTOR and query.contributor:
-                active = active and query.contributor.role == (
-                    value.role or "contributor"
-                )
+            active = facet_value_is_selected(query, page.facet, value)
             _link(
                 feed,
                 relation=OPDS_FACET_REL,
                 href=_url_with_query(
-                    external_url(request, config, endpoint), parameters
+                    external_url(request, config, _discovery_endpoint(selected_query)),
+                    parameters,
                 ),
                 media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
                 title=value.label,
@@ -703,9 +696,7 @@ def facet_navigation_feed_document(
         for value in page.values
     )
     for label, selected_query in selections:
-        endpoint = (
-            "opds12_publications" if selected_query.search is None else "opds12_search"
-        )
+        endpoint = _discovery_endpoint(selected_query)
         href = _url_with_query(
             external_url(request, config, endpoint),
             {
@@ -733,16 +724,14 @@ def acquisition_feed_document(
     cursor: CatalogDiscoveryCursor | None,
     query: CatalogDiscoveryQuery,
     facet_pages: tuple[CatalogFacetPage, ...],
-    endpoint: str,
-    title: str,
     acquisition_endpoint: str = "opds12_acquire_artifact",
 ) -> bytes:
-    feed_url = external_url(request, config, endpoint)
+    feed_url = external_url(request, config, _discovery_endpoint(query))
     revision = page.revision.revision
     root_url = _revision_url(request, config, "opds12_catalog", revision)
     feed = _feed(
         identifier=feed_url,
-        title=title,
+        title="Search Results" if has_search_query(query) else "All Publications",
         updated=page.revision.published_at,
         author=config.title,
     )
@@ -753,7 +742,6 @@ def acquisition_feed_document(
             request,
             config,
             page,
-            endpoint=endpoint,
             cursor=cursor,
             query=query,
         ),
@@ -766,7 +754,6 @@ def acquisition_feed_document(
             request,
             config,
             page,
-            endpoint=endpoint,
             cursor=None,
             query=query,
         ),
@@ -780,7 +767,6 @@ def acquisition_feed_document(
                 request,
                 config,
                 page,
-                endpoint=endpoint,
                 cursor=page.next_cursor,
                 query=query,
             ),
@@ -804,7 +790,6 @@ def acquisition_feed_document(
         request,
         config,
         facet_pages,
-        endpoint=endpoint,
         query=query,
         revision=revision,
         limit=page.limit,
