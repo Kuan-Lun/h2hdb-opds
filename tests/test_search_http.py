@@ -119,6 +119,11 @@ async def test_search_http_rejects_malformed_dsl_before_catalog_reads(
             "gid:0",
             "pages:200..40",
             'artist:"bad',
+            "female:“mind control",
+            "female:”mind control“",
+            'female:“mind control"',
+            'female:"mind control”',
+            r"female:“bad\”escape”",
         ):
             response = await client.get(
                 f"/opds/{version}/search", params={_search_parameter(version): text}
@@ -126,6 +131,63 @@ async def test_search_http_rejects_malformed_dsl_before_catalog_reads(
             assert response.status_code == 422
             assert response.json()["detail"]
     assert catalog_fixture.catalog.list_calls == []
+    assert catalog_fixture.catalog.revision_lookups == []
+
+
+async def test_smart_quoted_subject_matches_exact_values_and_replays_canonical_links(
+    catalog_fixture: CatalogFixture, opds_config: OPDSConfig, version: str
+) -> None:
+    publications = tuple(
+        replace(
+            publication,
+            subjects=(
+                CatalogSubject(name=value, scheme="tag", code="female"),
+                CatalogSubject(name="“literal”", scheme="tag", code="“namespace”"),
+            ),
+        )
+        for publication, value in zip(
+            catalog_fixture.publications,
+            ("mind control", "mind control", "mind  control"),
+            strict=True,
+        )
+    )
+    catalog = FakeCatalog(publications)
+    config = opds_config.model_copy(update={"default_page_size": 1})
+    app = create_app(config, catalog)
+    parameter = _search_parameter(version)
+    async with app_client(app) as client:
+        first = await client.get(
+            f"/opds/{version}/search", params={parameter: "female:“mind control”"}
+        )
+        assert _identifiers(first) == (publications[0].publication_id,)
+        assert catalog.list_calls[0][0].subjects == (
+            CatalogSubjectFilter("female", "mind control"),
+        )
+        for relation, expected in (
+            ("self", publications[0]),
+            ("next", publications[1]),
+        ):
+            url = _link(first, relation)
+            assert parse_qs(urlsplit(url).query)[parameter] == ['female:"mind control"']
+            replay = await client.get(url)
+            assert _identifiers(replay) == (expected.publication_id,)
+        if version == "v2":
+            assert not any(link["rel"] == "next" for link in replay.json()["links"])
+        else:
+            assert not any(
+                link.attrib["rel"] == "next"
+                for link in ElementTree.fromstring(replay.content).findall(
+                    "atom:link", _NAMESPACES
+                )
+            )
+        facets = _tag_facet_links(first)
+        for title, canonical, expected in (
+            ("mind  control", 'female:"mind  control"', publications[2]),
+            ("“literal”", '"“namespace”":"“literal”"', publications[0]),
+        ):
+            url = facets[title]
+            assert parse_qs(urlsplit(url).query)[parameter] == [canonical]
+            assert _identifiers(await client.get(url)) == (expected.publication_id,)
 
 
 async def test_search_pagination_preserves_all_filters_and_fences_changed_queries(

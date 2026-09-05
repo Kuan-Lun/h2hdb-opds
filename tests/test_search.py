@@ -132,6 +132,146 @@ def test_search_literal_and_range_boundaries(
     assert parse_search_query(rendered) == expected
 
 
+def test_smart_quotes_group_every_field_and_render_ascii_quotes() -> None:
+    query = parse_search_query(
+        "“不知火 花” title:“Cobalt Gallery” gid:“1834943” "
+        "female:“mind control” “名:稱”:“a  b” “title”:“source tag” "
+        "uploaded:“2026-09-01..2026-09-05” downloaded:“2026-09-06” pages:“40..200”"
+    )
+    assert query == CatalogDiscoveryQuery(
+        search="不知火 花",
+        title="Cobalt Gallery",
+        gid=1834943,
+        subjects=(
+            CatalogSubjectFilter("female", "mind control"),
+            CatalogSubjectFilter("title", "source tag"),
+            CatalogSubjectFilter("名:稱", "a  b"),
+        ),
+        uploaded=CatalogTimestampRange(
+            datetime(2026, 9, 1, tzinfo=UTC), datetime(2026, 9, 6, tzinfo=UTC)
+        ),
+        downloaded=CatalogTimestampRange(
+            datetime(2026, 9, 6, tzinfo=UTC), datetime(2026, 9, 7, tzinfo=UTC)
+        ),
+        pages=CatalogPageCountRange(40, 200),
+    )
+    rendered = render_search_query(query)
+    assert rendered is not None
+    assert "“" not in rendered and "”" not in rendered
+    assert 'female:"mind control"' in rendered
+    assert '"title":"source tag"' in rendered
+    assert parse_search_query(rendered) == query
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    (
+        ("“female:mind control”", CatalogDiscoveryQuery(search="female:mind control")),
+        (
+            '“female”:"mind control" "female":“mind control”',
+            CatalogDiscoveryQuery(
+                subjects=(CatalogSubjectFilter("female", "mind control"),)
+            ),
+        ),
+        (
+            "“ ”:“  ”",
+            CatalogDiscoveryQuery(subjects=(CatalogSubjectFilter(" ", "  "),)),
+        ),
+        (
+            "“123”:“中文”",
+            CatalogDiscoveryQuery(subjects=(CatalogSubjectFilter("123", "中文"),)),
+        ),
+        (
+            r"female:“a\"b\\c\u201d”",
+            CatalogDiscoveryQuery(
+                subjects=(CatalogSubjectFilter("female", 'a"b\\c”'),)
+            ),
+        ),
+        (
+            r"“\u201cname\u201d”:“\u201cmind\u201d”",
+            CatalogDiscoveryQuery(subjects=(CatalogSubjectFilter("“name”", "“mind”"),)),
+        ),
+    ),
+)
+def test_smart_quotes_preserve_json_escapes_and_exact_subjects(
+    text: str, expected: CatalogDiscoveryQuery
+) -> None:
+    query = parse_search_query(text)
+    assert query == expected
+    rendered = render_search_query(query)
+    assert rendered is not None
+    assert parse_search_query(rendered) == expected
+
+
+def test_literal_smart_quotes_round_trip_without_data_changes() -> None:
+    canonical = '"“literal”" title:"“title”" female:"“mind”" "“namespace”":"value”"'
+    query = parse_search_query(canonical)
+    assert query.search == "“literal”"
+    assert query.title == "“title”"
+    assert query.subjects == (
+        CatalogSubjectFilter("female", "“mind”"),
+        CatalogSubjectFilter("“namespace”", "value”"),
+    )
+    assert render_search_query(query) == canonical
+    assert parse_search_query(canonical) == query
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "female:“mind control",
+        "female:”mind control“",
+        'female:“mind control"',
+        'female:"mind control”',
+        "female:mind”",
+        "female:mi“nd”",
+        "female:“mind”suffix",
+        "“female”suffix:value",
+        '“female":value',
+        '"female”:value',
+        'female:“mind "control"”',
+        r"female:“bad\”escape”",
+        r"female:“bad\q”",
+        "female:“”",
+        "“”:value",
+        "title:“  ”",
+        "tag:female:“mind control”",
+    ),
+)
+def test_search_rejects_unpaired_mixed_or_malformed_smart_quotes(text: str) -> None:
+    with pytest.raises(ValueError):
+        parse_search_query(text)
+
+
+def test_smart_quote_grouping_retains_clause_subject_and_transport_limits() -> None:
+    assert (
+        len(parse_search_query(" ".join(["female:“mind control”"] * 32)).subjects) == 1
+    )
+    assert (
+        len(
+            parse_search_query(
+                " ".join(f"f:“value {index}”" for index in range(16))
+            ).subjects
+        )
+        == 16
+    )
+    namespace = "界" * 42 + "ab"
+    value = "中" * 341 + "a"
+    assert parse_search_query(f"“{namespace}”:“{value}”").subjects == (
+        CatalogSubjectFilter(namespace, value),
+    )
+    for invalid in (
+        " ".join(["female:“mind control”"] * 33),
+        " ".join(f"f:“value {index}”" for index in range(17)),
+        f"“{namespace}x”:“{value}”",
+        f"“{namespace}”:“{value}x”",
+    ):
+        with pytest.raises(ValueError):
+            parse_search_query(invalid)
+    with pytest.raises(ValueError, match="128 KiB"):
+        parse_search_query("female:“" + "x" * SEARCH_QUERY_MAXIMUM_BYTES + "”")
+
+
 @pytest.mark.parametrize(
     "namespace", ("tag", "title", "gid", "uploaded", "downloaded", "pages")
 )

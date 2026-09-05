@@ -20,6 +20,7 @@ _INTEGER = re.compile(r"(?:0|[1-9][0-9]*)\Z")
 _DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
 _SCALAR_FIELDS = frozenset({"gid", "uploaded", "downloaded", "pages"})
 _RESERVED_NAMESPACES = _SCALAR_FIELDS | {"title", "tag"}
+_QUOTE_PAIRS = {'"': '"', "“": "”"}
 # Six bytes per JSON-escaped byte covers 16 x (128-byte namespace + 1024-byte
 # value), two 1024-byte text fields, scalar fields and all DSL delimiters.
 SEARCH_QUERY_MAXIMUM_BYTES = 128 * 1024
@@ -32,26 +33,39 @@ def _validate_size(value: str) -> None:
 
 
 def _tokens(value: str) -> list[str]:
-    """Split outside JSON-style quotes without discarding literal provenance."""
+    """Canonicalize quote delimiters while preserving every quoted value byte."""
     tokens: list[str] = []
-    start = 0
-    quoted = False
+    token: list[str] = []
+    closing_quote: str | None = None
     escaped = False
-    for position, character in enumerate(value):
+    for character in value:
         if escaped:
+            token.append(character)
             escaped = False
-        elif quoted and character == "\\":
-            escaped = True
-        elif character == '"':
-            quoted = not quoted
-        elif not quoted and character.isspace():
-            if position > start:
-                tokens.append(value[start:position])
-            start = position + 1
-    if quoted:
+        elif closing_quote is not None:
+            if character == closing_quote:
+                token.append('"')
+                closing_quote = None
+            elif closing_quote == "”" and character in _QUOTE_PAIRS:
+                raise ValueError("search query has mismatched or nested quotes")
+            else:
+                token.append(character)
+                escaped = character == "\\"
+        elif character in _QUOTE_PAIRS:
+            token.append('"')
+            closing_quote = _QUOTE_PAIRS[character]
+        elif character == "”":
+            raise ValueError("search query has an unexpected closing quote")
+        elif character.isspace():
+            if token:
+                tokens.append("".join(token))
+                token.clear()
+        else:
+            token.append(character)
+    if closing_quote is not None:
         raise ValueError("search query has an unterminated quoted value")
-    if start < len(value):
-        tokens.append(value[start:])
+    if token:
+        tokens.append("".join(token))
     if len(tokens) > _MAXIMUM_CLAUSES:
         raise ValueError("search query exceeds 32 clauses")
     return tokens
@@ -211,7 +225,7 @@ def _quoted(value: str) -> str:
     if (
         value
         and not any(character.isspace() or ord(character) < 32 for character in value)
-        and not any(character in value for character in '\\":')
+        and not any(character in value for character in '\\":“”')
     ):
         return value
     return json.dumps(value, ensure_ascii=False)
