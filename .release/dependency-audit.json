@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-05T14:35:16+00:00",
+  "checked_at": "2026-09-05T17:34:00+00:00",
   "manifest_sha256": "653799cfea58df610c18afdf3c6cda487d68ded54f7905e93066d18d95c23685",
   "node": [
     {
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.15.0",
+  "project_version": "0.16.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed every direct build, runtime, optional development and Node dependency for the 0.15.0 smart-quote search release. Fresh PyPI and npm candidates are unchanged from the reviewed 0.14.1 receipt, match the installed validation environment, satisfy every declared range and support Python 3.14 where applicable. No dependency update or manifest change is needed. The 152 targeted parser and both-version HTTP tests passed, including exact literal preservation, invalid quote rejection and canonical pagination/facet replay. The final staged-candidate merge gate independently verifies the full suite, builds and installed-wheel version API.",
+    "note": "Reviewed every direct build, runtime, optional development and Node dependency for the 0.16.0 catalog recovery release. Fresh PyPI and npm candidates are unchanged from the reviewed 0.15.0 receipt, match the installed validation environment, satisfy all declared ranges, and support Python 3.14 where applicable. No dependency manifest or dependency version change is needed. Validation passed 239 HTTP and stable-navigation tests, 65 recovery cases, and four additional current-read failure cases; recovery preserves exact filters and limits while resetting stale pagination, and leaves asset fencing and activation protection intact. The staged-candidate merge gate independently checks the complete suite, protocol schemas, builds and installed-wheel behavior.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
