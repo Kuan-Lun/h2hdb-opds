@@ -259,6 +259,35 @@ async def test_missing_current_head_remains_unavailable(
 
 
 @pytest.mark.parametrize("prefix", ("/opds/v1.2", "/opds/v2"))
+@pytest.mark.parametrize("explicit_revision", (False, True))
+async def test_current_read_failure_is_not_misreported_as_catalog_refresh(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    prefix: str,
+    explicit_revision: bool,
+) -> None:
+    def failed_read(**_kwargs: Any) -> CatalogDiscoveryBundle:
+        raise CatalogRevisionNotFoundError(7)
+
+    monkeypatch.setattr(
+        catalog_fixture.catalog, "discover_publications_with_facets", failed_read
+    )
+    app = create_app(opds_config, catalog_fixture.catalog)
+    async with app_client(app) as client:
+        response = await client.get(
+            f"{prefix}/publications",
+            params={"revision": "7"} if explicit_revision else {},
+        )
+
+    assert response.status_code == 404
+    description = "7" if explicit_revision else "current"
+    assert response.json() == {"detail": f"Catalog revision {description} not found"}
+    assert "location" not in response.headers
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("prefix", ("/opds/v1.2", "/opds/v2"))
 async def test_activation_is_not_redirected_and_recovers_after_unlock(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
