@@ -53,6 +53,8 @@ packages = ["src/h2hdb_opds"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-m 'not deep'"
+markers = ["deep: explicitly manual high-cost tests, excluded from automatic gates"]
 
 [tool.ruff]
 line-length = 88
@@ -66,7 +68,7 @@ ignore = ["E501"]
 [tool.mypy]
 python_version = "3.14"
 mypy_path = "src"
-files = ["src", "tests", "benchmarks"]
+files = ["src", "tests", "benchmarks", "scripts/run-checks.py"]
 strict = true
 warn_unused_configs = true
 warn_unreachable = true

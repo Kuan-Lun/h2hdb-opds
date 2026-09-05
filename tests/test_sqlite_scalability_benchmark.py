@@ -58,6 +58,30 @@ _SMOKE_EXPECTED_BODY_SHA256 = {
 def core_smoke_fixture(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> tuple[Path, Path]:
+    return _prepare_core_smoke_fixture(
+        tmp_path_factory.mktemp("core-sqlite-scalability")
+    )
+
+
+def _prepare_core_smoke_fixture(root: Path) -> tuple[Path, Path]:
+    database = root / "catalog.sqlite3"
+    receipt = root / "core-receipt.json"
+    provided_database = os.environ.get("H2HDB_SQLITE_FIXTURE_DATABASE")
+    provided_receipt = os.environ.get("H2HDB_SQLITE_FIXTURE_RECEIPT")
+    if provided_database is not None or provided_receipt is not None:
+        if not provided_database or not provided_database.strip():
+            pytest.fail("H2HDB_SQLITE_FIXTURE_DATABASE must name the smoke database")
+        if not provided_receipt or not provided_receipt.strip():
+            pytest.fail("H2HDB_SQLITE_FIXTURE_RECEIPT must name its core receipt")
+        shutil.copyfile(Path(provided_database).expanduser(), database)
+        shutil.copyfile(Path(provided_receipt).expanduser(), receipt)
+        authority = load_core_fixture(database, receipt)
+        if authority.profile != "smoke":
+            pytest.fail(
+                "automatic SQLite integration requires the bounded smoke fixture"
+            )
+        return database, receipt
+
     configured_root = os.environ.get("H2HDB_CORE_REPOSITORY")
     if configured_root is not None:
         if not configured_root.strip():
@@ -66,7 +90,10 @@ def core_smoke_fixture(
     else:
         raw_init = h2hdb.__file__
         if raw_init is None:
-            pytest.skip("the imported h2hdb package has no locatable source tree")
+            pytest.fail(
+                "SQLite integration requires H2HDB_CORE_REPOSITORY or both "
+                "H2HDB_SQLITE_FIXTURE_DATABASE and H2HDB_SQLITE_FIXTURE_RECEIPT"
+            )
         core_root = Path(raw_init).resolve(strict=True).parents[2]
     generator = core_root / "benchmarks" / "sqlite_catalog_scalability.py"
     if not generator.is_file():
@@ -74,10 +101,12 @@ def core_smoke_fixture(
             pytest.fail(
                 f"H2HDB_CORE_REPOSITORY lacks the fixture generator: {generator}"
             )
-        pytest.skip("the installed h2hdb wheel does not include its fixture generator")
-    root = tmp_path_factory.mktemp("core-sqlite-scalability")
-    database = root / "catalog.sqlite3"
-    receipt = root / "core-receipt.json"
+        pytest.fail(
+            "The installed h2hdb wheel lacks its smoke fixture generator; set "
+            "H2HDB_CORE_REPOSITORY to an explicit core source checkout or provide "
+            "both H2HDB_SQLITE_FIXTURE_DATABASE and H2HDB_SQLITE_FIXTURE_RECEIPT. "
+            "Required SQLite integration cannot be skipped."
+        )
     completed = subprocess.run(
         (
             sys.executable,
@@ -97,6 +126,59 @@ def core_smoke_fixture(
     )
     assert completed.returncode == 0, completed.stderr
     return database, receipt
+
+
+def test_wheel_only_environment_cannot_silently_skip_required_sqlite_integration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for variable in (
+        "H2HDB_CORE_REPOSITORY",
+        "H2HDB_SQLITE_FIXTURE_DATABASE",
+        "H2HDB_SQLITE_FIXTURE_RECEIPT",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+    package_init = tmp_path / "site-packages" / "h2hdb" / "__init__.py"
+    package_init.parent.mkdir(parents=True)
+    package_init.touch()
+    monkeypatch.setattr(h2hdb, "__file__", str(package_init))
+
+    with pytest.raises(pytest.fail.Exception, match="cannot be skipped"):
+        _prepare_core_smoke_fixture(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("provided", "missing"),
+    (
+        ("H2HDB_SQLITE_FIXTURE_DATABASE", "H2HDB_SQLITE_FIXTURE_RECEIPT"),
+        ("H2HDB_SQLITE_FIXTURE_RECEIPT", "H2HDB_SQLITE_FIXTURE_DATABASE"),
+    ),
+)
+def test_explicit_sqlite_fixture_requires_both_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provided: str, missing: str
+) -> None:
+    monkeypatch.setenv(provided, str(tmp_path / "provided-input"))
+    monkeypatch.delenv(missing, raising=False)
+
+    with pytest.raises(pytest.fail.Exception, match=missing):
+        _prepare_core_smoke_fixture(tmp_path)
+
+
+def test_explicit_sqlite_fixture_is_validated_and_copied_before_use(
+    core_smoke_fixture: tuple[Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_database, source_receipt = core_smoke_fixture
+    monkeypatch.setenv("H2HDB_SQLITE_FIXTURE_DATABASE", str(source_database))
+    monkeypatch.setenv("H2HDB_SQLITE_FIXTURE_RECEIPT", str(source_receipt))
+    monkeypatch.setenv("H2HDB_CORE_REPOSITORY", str(tmp_path / "unused-source"))
+
+    database, receipt = _prepare_core_smoke_fixture(tmp_path)
+
+    assert database != source_database and receipt != source_receipt
+    assert database.read_bytes() == source_database.read_bytes()
+    assert receipt.read_bytes() == source_receipt.read_bytes()
+    assert load_core_fixture(database, receipt).profile == "smoke"
 
 
 def test_core_fixture_receipt_is_exactly_bound_to_ready_database(
