@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-05T12:40:37+00:00",
+  "checked_at": "2026-09-05T14:35:16+00:00",
   "manifest_sha256": "653799cfea58df610c18afdf3c6cda487d68ded54f7905e93066d18d95c23685",
   "node": [
     {
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.14.1",
+  "project_version": "0.15.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed every direct build, runtime, optional development and Node dependency for the 0.14.1 version API release. Fresh PyPI and npm candidates are unchanged from the reviewed 0.14.0 receipt, match the installed validation environment, satisfy all declared ranges and support Python 3.14 where applicable. No dependency update or manifest change is needed. Version, startup and maintenance diagnostics passed 17 targeted tests with this environment. The final staged-candidate merge gate independently runs the complete suite and verifies the version endpoint and OpenAPI against a freshly built and installed release wheel.",
+    "note": "Reviewed every direct build, runtime, optional development and Node dependency for the 0.15.0 smart-quote search release. Fresh PyPI and npm candidates are unchanged from the reviewed 0.14.1 receipt, match the installed validation environment, satisfy every declared range and support Python 3.14 where applicable. No dependency update or manifest change is needed. The 152 targeted parser and both-version HTTP tests passed, including exact literal preservation, invalid quote rejection and canonical pagination/facet replay. The final staged-candidate merge gate independently verifies the full suite, builds and installed-wheel version API.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
