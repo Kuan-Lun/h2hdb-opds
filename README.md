@@ -166,6 +166,11 @@ GET /opds/v2/search?query=alice
 OPDS 2 follows the specification's required search parameter name `query`.
 The former `q` spelling is rejected with 422 and is not an alias. OPDS 1.2
 continues to use `q`; its OpenSearch description maps `{searchTerms}` to it.
+The description uses a document-local default XML namespace and advertises only
+`q={searchTerms}` plus the selected revision. This supports readers such as Panels
+that expect unprefixed OpenSearch elements and do not expand optional template
+parameters reliably. Language, tag, contributor and page-size parameters remain
+available on the HTTP routes and through concrete facet/pagination links.
 The search endpoint requires a nonblank searchable query. Missing, whitespace-
 only, punctuation-only and over-complex queries return 422 instead of becoming
 an unfiltered All Publications request.

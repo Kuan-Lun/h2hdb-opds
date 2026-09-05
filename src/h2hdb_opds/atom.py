@@ -53,7 +53,6 @@ ATOM_NAMESPACE = "http://www.w3.org/2005/Atom"
 DC_TERMS_NAMESPACE = "http://purl.org/dc/terms/"
 OPDS_NAMESPACE = "http://opds-spec.org/2010/catalog"
 OPEN_SEARCH_NAMESPACE = "http://a9.com/-/spec/opensearch/1.1/"
-H2H_SEARCH_NAMESPACE = "https://h2hdb.dev/opensearch/1.0"
 PSE_NAMESPACE = "http://vaemendis.net/opds-pse/ns"
 THREADING_NAMESPACE = "http://purl.org/syndication/thread/1.0"
 OPDS12_ACQUISITION_MEDIA_TYPE = (
@@ -908,30 +907,25 @@ def opensearch_description_document(
     revision: CatalogRevision,
 ) -> bytes:
     root = ElementTree.Element(
-        f"{{{OPEN_SEARCH_NAMESPACE}}}OpenSearchDescription",
-        {"xmlns:h2h": H2H_SEARCH_NAMESPACE},
+        "OpenSearchDescription",
+        {"xmlns": OPEN_SEARCH_NAMESPACE},
     )
+    # Panels requires unprefixed OpenSearch element names. Declare the namespace
+    # on this document without changing ElementTree's shared Atom registration.
     short_name = config.title.strip()[:16] or "H2HDB"
-    _text_element(root, "ShortName", short_name, namespace=OPEN_SEARCH_NAMESPACE)
-    _text_element(
-        root,
-        "Description",
-        f"Search {config.title}",
-        namespace=OPEN_SEARCH_NAMESPACE,
+    ElementTree.SubElement(root, "ShortName").text = _xml_text(short_name)
+    ElementTree.SubElement(root, "Description").text = _xml_text(
+        f"Search {config.title}"
     )
     search_url = external_url(request, config, "opds12_search")
-    template = (
-        f"{search_url}?q={{searchTerms}}&language={{language?}}"
-        "&tag={h2h:tag?}&tag_namespace={h2h:tagNamespace?}"
-        "&contributor={h2h:contributor?}&role={h2h:role?}"
-        "&limit={count?}"
-        f"&revision={revision.revision}"
-    )
+    # Reader search boxes only need a query. Exact filters and page limits remain
+    # available through the API and concrete facet/pagination links.
+    template = f"{search_url}?q={{searchTerms}}&revision={revision.revision}"
     ElementTree.SubElement(
         root,
-        f"{{{OPEN_SEARCH_NAMESPACE}}}Url",
+        "Url",
         {"type": OPDS12_ACQUISITION_MEDIA_TYPE, "template": template},
     )
-    _text_element(root, "InputEncoding", "UTF-8", namespace=OPEN_SEARCH_NAMESPACE)
-    _text_element(root, "OutputEncoding", "UTF-8", namespace=OPEN_SEARCH_NAMESPACE)
+    ElementTree.SubElement(root, "InputEncoding").text = "UTF-8"
+    ElementTree.SubElement(root, "OutputEncoding").text = "UTF-8"
     return _serialized(root)

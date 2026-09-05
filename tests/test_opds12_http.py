@@ -1,9 +1,11 @@
 from dataclasses import replace
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 from xml.etree import ElementTree
 
+import pytest
 from h2hdb import CatalogSubject
 from httpx import Response
+from lxml import etree
 
 from h2hdb_opds import OPDSConfig, create_app
 from h2hdb_opds.atom import (
@@ -138,17 +140,98 @@ async def test_opensearch_description_uses_literal_standard_template(
     app = create_app(opds_config, catalog_fixture.catalog)
 
     async with app_client(app) as client:
+        before = await client.get("/opds/v1.2/catalog")
         response = await client.get("/opds/v1.2/opensearch.xml")
+        after = await client.get("/opds/v1.2/catalog")
 
     root = _xml(response, OPEN_SEARCH_MEDIA_TYPE)
     template = root.find(f"{{{OPEN_SEARCH_NAMESPACE}}}Url")
     assert template is not None
     assert template.attrib["template"].endswith(
-        "/opds/v1.2/search?q={searchTerms}&language={language?}"
-        "&tag={h2h:tag?}&tag_namespace={h2h:tagNamespace?}"
-        "&contributor={h2h:contributor?}&role={h2h:role?}"
-        "&limit={count?}&revision=7"
+        "/opds/v1.2/search?q={searchTerms}&revision=7"
     )
+    descriptor = etree.fromstring(response.content)
+    assert descriptor.tag == f"{{{OPEN_SEARCH_NAMESPACE}}}OpenSearchDescription"
+    assert descriptor.nsmap[None] == OPEN_SEARCH_NAMESPACE
+    assert all(not element.prefix for element in descriptor.iter())
+    for feed_response in (before, after):
+        feed = etree.fromstring(feed_response.content)
+        assert feed.tag == f"{{{ATOM_NAMESPACE}}}feed"
+        assert not feed.prefix
+        assert feed.nsmap[None] == ATOM_NAMESPACE
+
+
+@pytest.mark.parametrize("query", ("Alpha", "中文測試 Café & C++ #1", "gid:1834943"))
+async def test_opensearch_template_can_be_followed_by_replacing_only_search_terms(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    query: str,
+) -> None:
+    publication = replace(catalog_fixture.publications[0], title=query)
+    app = create_app(opds_config, FakeCatalog((publication,)))
+
+    async with app_client(app) as client:
+        root = _xml(
+            await client.get("/opds/v1.2/catalog"), OPDS12_NAVIGATION_MEDIA_TYPE
+        )
+        descriptor = _xml(
+            await client.get(_link(root, "search").attrib["href"]),
+            OPEN_SEARCH_MEDIA_TYPE,
+        )
+        template = descriptor.find(f"{{{OPEN_SEARCH_NAMESPACE}}}Url")
+        assert template is not None
+        search_url = template.attrib["template"].replace(
+            "{searchTerms}", quote(query, safe="")
+        )
+        response = await client.get(search_url)
+        feed = _xml(response, OPDS12_ACQUISITION_MEDIA_TYPE)
+
+    assert _entry_titles(feed) == [query]
+    assert parse_qs(urlsplit(_link(feed, "self").attrib["href"]).query) == {
+        "q": [query],
+        "revision": ["7"],
+        "limit": ["50"],
+    }
+
+
+async def test_opensearch_results_keep_pagination_and_revision_fencing(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+) -> None:
+    config = opds_config.model_copy(update={"default_page_size": 1})
+    catalog = catalog_fixture.catalog
+    app = create_app(config, catalog)
+
+    async with app_client(app) as client:
+        descriptor = _xml(
+            await client.get("/opds/v1.2/opensearch.xml?revision=7"),
+            OPEN_SEARCH_MEDIA_TYPE,
+        )
+        template = descriptor.find(f"{{{OPEN_SEARCH_NAMESPACE}}}Url")
+        assert template is not None
+        search_url = template.attrib["template"].replace("{searchTerms}", "cobalt")
+        first = _xml(await client.get(search_url), OPDS12_ACQUISITION_MEDIA_TYPE)
+        next_url = _link(first, "next").attrib["href"]
+        second = _xml(await client.get(next_url), OPDS12_ACQUISITION_MEDIA_TYPE)
+        assert _entry_titles(first) == ["Alpha Gallery"]
+        assert _entry_titles(second) == ["Gamma Gallery"]
+        assert parse_qs(urlsplit(next_url).query)["q"] == ["cobalt"]
+        assert parse_qs(urlsplit(next_url).query)["revision"] == ["7"]
+
+        catalog.add_revision(
+            replace(catalog.revision, revision=8), catalog.publications
+        )
+        assert (await client.get(search_url)).status_code == 404
+        assert (await client.get(next_url)).status_code == 404
+        assert (
+            await client.get("/opds/v1.2/opensearch.xml?revision=7")
+        ).status_code == 404
+        fresh = _xml(
+            await client.get("/opds/v1.2/opensearch.xml"), OPEN_SEARCH_MEDIA_TYPE
+        )
+        fresh_template = fresh.find(f"{{{OPEN_SEARCH_NAMESPACE}}}Url")
+        assert fresh_template is not None
+        assert fresh_template.attrib["template"].endswith("&revision=8")
 
 
 async def test_search_and_atom_facets_preserve_query_and_counts(
