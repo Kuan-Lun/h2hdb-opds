@@ -80,7 +80,10 @@ def _tag_facet_links(response: Response) -> dict[str, str]:
         ("title:Cobalt", (1001, 1003)),
         ("title:Alice", ()),
         ("Alice", (1001,)),
-        ("tag:f:fantasy", (1001,)),
+        ("f:fantasy", (1001,)),
+        ("f:fantasy unknown:value", ()),
+        ("unknown:value", ()),
+        ("語言:中文", ()),
         ("downloaded:2026-08-05 uploaded:2026-08-05 pages:0", (1002, 1003)),
         ("pages:1..4096", (1001,)),
         ("1001", ()),
@@ -109,7 +112,14 @@ async def test_search_http_rejects_malformed_dsl_before_catalog_reads(
 ) -> None:
     app = create_app(opds_config, catalog_fixture.catalog)
     async with app_client(app) as client:
-        for text in ("unknown:value", "gid:0", "pages:200..40", 'tag:artist:"bad'):
+        for text in (
+            "tag:language:chinese",
+            "tag:artist",
+            'tag:"language":"chinese"',
+            "gid:0",
+            "pages:200..40",
+            'artist:"bad',
+        ):
             response = await client.get(
                 f"/opds/{version}/search", params={_search_parameter(version): text}
             )
@@ -190,17 +200,35 @@ async def test_multitag_http_and_facet_links_preserve_other_search_conditions(
     catalog = FakeCatalog((publication,))
     app = create_app(opds_config, catalog)
     parameter = _search_parameter(version)
-    text = "title:Alpha gid:1001 tag:language:chinese pages:1 uploaded:2026-08-05"
+    text = "title:Alpha gid:1001 language:chinese pages:1 uploaded:2026-08-05"
     expected = parse_search_query(text)
     async with app_client(app) as client:
         response = await client.get(
             f"/opds/{version}/search",
-            params={parameter: text, "tag_namespace": "artist", "tag": "a  b"},
+            params={
+                parameter: text,
+                "tag_namespace": "artist",
+                "tag": "a  b",
+                "language": "en",
+            },
         )
         assert _identifiers(response) == (publication.publication_id,)
         assert catalog.list_calls[0][0].subjects == (
             CatalogSubjectFilter("artist", "a  b"),
             CatalogSubjectFilter("language", "chinese"),
+        )
+        assert catalog.list_calls[0][0].language == "en"
+        self_parameters = parse_qs(urlsplit(_link(response, "self")).query)
+        assert self_parameters["language"] == ["en"]
+        assert parse_search_query(self_parameters[parameter][0]) == replace(
+            expected,
+            subjects=(
+                CatalogSubjectFilter("artist", "a  b"),
+                CatalogSubjectFilter("language", "chinese"),
+            ),
+        )
+        assert _identifiers(await client.get(_link(response, "self"))) == (
+            publication.publication_id,
         )
         facets = _tag_facet_links(response)
         for title, subjects in (
@@ -208,12 +236,69 @@ async def test_multitag_http_and_facet_links_preserve_other_search_conditions(
             ("extra", (CatalogSubjectFilter("other", "extra"),)),
         ):
             parameters = parse_qs(urlsplit(facets[title]).query)
+            assert parameters["language"] == ["en"]
             assert parse_search_query(parameters[parameter][0]) == replace(
                 expected, subjects=subjects
             )
             assert _identifiers(await client.get(facets[title])) == (
                 publication.publication_id,
             )
+
+
+@pytest.mark.parametrize(
+    ("namespace", "value", "clause"),
+    (
+        ("tag", "value", '"tag":value'),
+        ("title", "value", '"title":value'),
+        ("gid", "value", '"gid":value'),
+        ("uploaded", "value", '"uploaded":value'),
+        ("downloaded", "value", '"downloaded":value'),
+        ("pages", "value", '"pages":value'),
+        ("language", "chinese", "language:chinese"),
+        ("名:稱", "a  b:c", '"名:稱":"a  b:c"'),
+    ),
+)
+async def test_subject_search_self_next_and_facet_links_replay_exact_namespaces(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    version: str,
+    namespace: str,
+    value: str,
+    clause: str,
+) -> None:
+    publications = tuple(
+        replace(
+            publication,
+            subjects=(
+                CatalogSubject(name=value, scheme="tag", code=namespace),
+                CatalogSubject(name="alternate", scheme="tag", code="title"),
+            ),
+        )
+        for publication in catalog_fixture.publications
+    )
+    config = opds_config.model_copy(update={"default_page_size": 1})
+    app = create_app(config, FakeCatalog(publications))
+    parameter = _search_parameter(version)
+    async with app_client(app) as client:
+        response = await client.get(
+            f"/opds/{version}/search", params={parameter: clause}
+        )
+        assert _identifiers(response) == (publications[0].publication_id,)
+        for relation, publication in (
+            ("self", publications[0]),
+            ("next", publications[1]),
+        ):
+            url = _link(response, relation)
+            parameters = parse_qs(urlsplit(url).query)
+            assert parameters[parameter] == [clause]
+            assert "tag_namespace" not in parameters
+            assert "tag" not in parameters
+            assert _identifiers(await client.get(url)) == (publication.publication_id,)
+        facet_url = _tag_facet_links(response)["alternate"]
+        assert parse_qs(urlsplit(facet_url).query)[parameter] == ['"title":alternate']
+        assert _identifiers(await client.get(facet_url)) == (
+            publications[0].publication_id,
+        )
 
 
 async def test_maximum_exact_tag_and_long_text_have_followable_generated_links(

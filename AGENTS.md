@@ -196,11 +196,20 @@ path 均不得呼叫 `migrate()`。
   `contributor` 與 `role` 分別必須成對。Facet filter bytes 必須 exact
   round-trip，不得 trim、Unicode normalize 或 collapse whitespace。Facet values
   必須 bounded paged，超過第一個 window 時提供 followable next/More link。
-- 兩版 search 共用 typed AND DSL：bare text、`title:`、`gid:`、`tag:namespace:value`、
-  `uploaded:`、`downloaded:` 與 `pages:`。純數字保持 text；title 只比對 display/source
-  title authority。Quoted value 只負責值分組與 escaping，不宣稱 phrase matching。
-  未知 ASCII field prefix、malformed syntax、absent、blank 或無有效條件的 query
-  回 422；合法 filter-only query 不要求 free-text lexeme。
+- 兩版 search 共用 implicit AND DSL：bare text、`title:`、`gid:`、`namespace:value`、
+  `uploaded:`、`downloaded:` 與 `pages:`。AND 只由空白隱含，不支援 `AND`、`OR`、
+  `NOT` 或括號運算子。純數字保持 text；title 只比對 display/source title authority。
+  未 quoted 的 `title`、`gid`、`uploaded`、`downloaded`、`pages` 是 reserved typed
+  fields；其他 namespace 包括 Unicode 與未知名稱均為 exact subject filter，合法
+  未知 namespace 無匹配時回 empty result。`language:chinese` 保持 subject 語義，
+  HTTP `language=` 是獨立的作品語言 filter。
+- Quoted namespace 一律為 subject namespace，可表達 reserved names、colon 或空白，
+  例如 `"title":foo`、`"名:稱":"a  b"`。Quoted value 只負責值分組與 escaping，
+  不宣稱 phrase matching；整詞 `"language:chinese"` 保持 bare text。未 quoted 的
+  `tag:` 一律回 422，移除舊 `tag:namespace:value` path，不保留 alias；名為 `tag` 的
+  namespace 使用 `"tag":value`。HTTP `tag`/`tag_namespace` pair 維持支援。
+  Malformed syntax、absent、blank 或無有效條件的 query 回 422；合法 filter-only query
+  不要求 free-text lexeme。
 - 多 tag 使用 `CatalogDiscoveryQuery.subjects` tuple，全部 AND；HTTP 單 tag pair
   與 DSL tags 合併、exact 去重，不得保留 singular `subject` alias。Scalar field 不得
   重複；多個 title clause 合併 AND。Dates 使用 UTC calendar days，inclusive 上界日期
@@ -210,8 +219,8 @@ path 均不得呼叫 `migrate()`。
   text/title 各 1024 canonical-NFD UTF-8 bytes、合計 16 field-scoped lexemes、16 exact
   tags 及每個 tag namespace/value 128/1024 UTF-8 bytes bounds 仍須維持。Transport
   budget 必須容納合法 typed query 與 facet replacement 的完整 quote expansion。
-  Self/first/next/facet/More links 由 typed query 重新產生 canonical DSL，不保存 raw
-  caller syntax 作為 authority。Subject facet clear/reselect 清除整個 tag family，
+  Self/first/next/facet/More links 由 typed query 重新產生 canonical `namespace:value`
+  DSL，不保存 raw caller syntax 作為 authority。Subject facet clear/reselect 清除整個 tag family，
   保留其他 typed conditions；無 DSL condition 時 canonical links 使用 publications
   route，有 DSL condition 時使用 search route。
 - Discovery 是 acquisition-only surface。revision `artifact_count=0` 時，即使

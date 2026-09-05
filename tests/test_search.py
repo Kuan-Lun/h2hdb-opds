@@ -28,7 +28,7 @@ from h2hdb_opds.search import (
 def test_search_compiles_all_fields_and_round_trips_exact_tag_bytes() -> None:
     query = parse_search_query(
         '不知火 title:"Cobalt Gallery" title:Alpha gid:1834943 '
-        'tag:language:chinese tag:"名:稱":"a  b\\"c\\\\d" '
+        'language:chinese "名:稱":"a  b\\"c\\\\d" '
         "uploaded:2026-09-01..2026-09-05 downloaded:2026-09-06 pages:40..200"
     )
     assert query == CatalogDiscoveryQuery(
@@ -60,15 +60,49 @@ def test_search_compiles_all_fields_and_round_trips_exact_tag_bytes() -> None:
         ("1834943", CatalogDiscoveryQuery(search="1834943")),
         ('"gid:1834943"', CatalogDiscoveryQuery(search="gid:1834943")),
         ('"unknown:word"', CatalogDiscoveryQuery(search="unknown:word")),
+        ('"language:chinese"', CatalogDiscoveryQuery(search="language:chinese")),
         ('"A  B"', CatalogDiscoveryQuery(search="A B")),
         ("title:Alpha title:Beta", CatalogDiscoveryQuery(title="Alpha Beta")),
         (
-            "tag:f:fantasy tag:f:fantasy",
+            'f:fantasy "f":"fantasy"',
             CatalogDiscoveryQuery(subjects=(CatalogSubjectFilter("f", "fantasy"),)),
         ),
         (
-            'tag:" ":"  "',
+            '" ":"  "',
             CatalogDiscoveryQuery(subjects=(CatalogSubjectFilter(" ", "  "),)),
+        ),
+        (
+            "unknown:value",
+            CatalogDiscoveryQuery(subjects=(CatalogSubjectFilter("unknown", "value"),)),
+        ),
+        (
+            "語言:中文 123:456 artist-name:alice",
+            CatalogDiscoveryQuery(
+                subjects=(
+                    CatalogSubjectFilter("語言", "中文"),
+                    CatalogSubjectFilter("123", "456"),
+                    CatalogSubjectFilter("artist-name", "alice"),
+                )
+            ),
+        ),
+        (
+            'artist:name:with:colons "name:space":value',
+            CatalogDiscoveryQuery(
+                subjects=(
+                    CatalogSubjectFilter("artist", "name:with:colons"),
+                    CatalogSubjectFilter("name:space", "value"),
+                )
+            ),
+        ),
+        (
+            '"tag":"language:chinese" "title":foo title:bar',
+            CatalogDiscoveryQuery(
+                title="bar",
+                subjects=(
+                    CatalogSubjectFilter("tag", "language:chinese"),
+                    CatalogSubjectFilter("title", "foo"),
+                ),
+            ),
         ),
         ("pages:0", CatalogDiscoveryQuery(pages=CatalogPageCountRange(0, 0))),
         ("pages:4096", CatalogDiscoveryQuery(pages=CatalogPageCountRange(4096, 4096))),
@@ -99,6 +133,41 @@ def test_search_literal_and_range_boundaries(
 
 
 @pytest.mark.parametrize(
+    "namespace", ("tag", "title", "gid", "uploaded", "downloaded", "pages")
+)
+def test_reserved_subject_namespaces_require_and_retain_quotes(namespace: str) -> None:
+    query = CatalogDiscoveryQuery(subjects=(CatalogSubjectFilter(namespace, "value"),))
+    canonical = f'"{namespace}":value'
+    assert render_search_query(query) == canonical
+    assert parse_search_query(canonical) == query
+
+
+def test_subject_namespaces_and_values_preserve_exact_bytes_and_distinct_case() -> None:
+    query = parse_search_query(
+        '"Title":" É  " "title":" É  " "a\\"b\\\\c":"x\\ty" "tag":"language:chinese"'
+    )
+    assert query.subjects == (
+        CatalogSubjectFilter("Title", " É  "),
+        CatalogSubjectFilter('a"b\\c', "x\ty"),
+        CatalogSubjectFilter("tag", "language:chinese"),
+        CatalogSubjectFilter("title", " É  "),
+    )
+    assert parse_search_query(render_search_query(query) or "") == query
+
+
+def test_subject_namespace_and_value_utf8_bounds() -> None:
+    namespace = "界" * 42 + "ab"
+    value = "中" * 341 + "a"
+    text = f"{namespace}:{value}"
+    assert parse_search_query(text).subjects == (
+        CatalogSubjectFilter(namespace, value),
+    )
+    for invalid in (f"{namespace}x:{value}", f"{namespace}:{value}x"):
+        with pytest.raises(ValueError):
+            parse_search_query(invalid)
+
+
+@pytest.mark.parametrize(
     "text",
     (
         "",
@@ -110,13 +179,24 @@ def test_search_literal_and_range_boundaries(
         'title:"unfinished',
         'title:"bad\\q"',
         'title:ab"cd"',
-        "unknown:value",
+        ":value",
+        '"":value',
+        "artist:",
+        'artist:""',
+        'art"ist":value',
+        '"artist"suffix:value',
+        '"artist":ab"cd"',
+        '"bad\\q":value',
         "gid:0",
         "gid:01",
         "gid:\uff11\uff12\uff13",
         "gid:9223372036854775808",
         "gid:1 gid:1",
         "tag:artist",
+        "tag:language:chinese",
+        'tag:"language":"chinese"',
+        "tag:value:with:colons",
+        "tag:",
         "tag::name",
         "tag:artist:",
         'tag:artist:""',
@@ -143,7 +223,7 @@ def test_search_rejects_malformed_or_unsearchable_conditions(text: str) -> None:
 
 def test_search_enforces_bounded_clauses_lexemes_tags_and_utf8_bytes() -> None:
     assert parse_search_query(" ".join(["same"] * 32)).search is not None
-    assert len(parse_search_query(" ".join(["tag:f:one"] * 32)).subjects) == 1
+    assert len(parse_search_query(" ".join(["f:one"] * 32)).subjects) == 1
     for text in (
         " ".join(["same"] * 33),
         " ".join(f"word{index}" for index in range(17)),
@@ -151,7 +231,7 @@ def test_search_enforces_bounded_clauses_lexemes_tags_and_utf8_bytes() -> None:
         + ' title:"'
         + " ".join(f"word{index}" for index in range(9))
         + '"',
-        " ".join(f"tag:f:value{index}" for index in range(17)),
+        " ".join(f"f:value{index}" for index in range(17)),
         "中" * 400,
     ):
         with pytest.raises(ValueError):
@@ -180,7 +260,7 @@ def test_canonical_transport_fits_maximum_core_fields_and_json_expansion() -> No
 
 def test_http_filters_combine_with_dsl_and_facets_replace_only_their_family() -> None:
     query = discovery_query(
-        search="title:Alpha gid:1001 tag:f:fantasy pages:40..200 uploaded:2026-09-05",
+        search="title:Alpha gid:1001 f:fantasy pages:40..200 uploaded:2026-09-05",
         language="en",
         tag="a  b",
         tag_namespace="artist",

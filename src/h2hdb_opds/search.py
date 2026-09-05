@@ -16,10 +16,10 @@ from h2hdb import (
     CatalogTimestampRange,
 )
 
-_FIELD_PREFIX = re.compile(r"([A-Za-z][A-Za-z0-9_-]*):")
 _INTEGER = re.compile(r"(?:0|[1-9][0-9]*)\Z")
 _DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
 _SCALAR_FIELDS = frozenset({"gid", "uploaded", "downloaded", "pages"})
+_RESERVED_NAMESPACES = _SCALAR_FIELDS | {"title", "tag"}
 # Six bytes per JSON-escaped byte covers 16 x (128-byte namespace + 1024-byte
 # value), two 1024-byte text fields, scalar fields and all DSL delimiters.
 SEARCH_QUERY_MAXIMUM_BYTES = 128 * 1024
@@ -77,10 +77,11 @@ def _value(raw: str, *, allow_whitespace: bool = False) -> str:
     return selected
 
 
-def _tag(raw: str) -> CatalogSubjectFilter:
+def _field_parts(token: str) -> tuple[str, str] | None:
+    """Split at the first unquoted colon, preserving quoted namespace identity."""
     quoted = False
     escaped = False
-    for position, character in enumerate(raw):
+    for position, character in enumerate(token):
         if escaped:
             escaped = False
         elif quoted and character == "\\":
@@ -88,11 +89,8 @@ def _tag(raw: str) -> CatalogSubjectFilter:
         elif character == '"':
             quoted = not quoted
         elif character == ":" and not quoted:
-            return CatalogSubjectFilter(
-                namespace=_value(raw[:position], allow_whitespace=True),
-                value=_value(raw[position + 1 :], allow_whitespace=True),
-            )
-    raise ValueError("tag requires a namespace and value: tag:namespace:value")
+            return token[:position], token[position + 1 :]
+    return None
 
 
 def _integer(value: str, *, field: str) -> int:
@@ -160,22 +158,26 @@ def parse_search_query(value: str) -> CatalogDiscoveryQuery:
     subjects: list[CatalogSubjectFilter] = []
     scalars: dict[str, str] = {}
     for token in _tokens(value):
-        prefix = _FIELD_PREFIX.match(token)
-        if prefix is None:
+        parts = _field_parts(token)
+        if parts is None:
             words.append(_value(token))
             continue
-        field = prefix[1]
-        raw = token[prefix.end() :]
+        field, raw = parts
         if field == "title":
             titles.append(_value(raw))
         elif field == "tag":
-            subjects.append(_tag(raw))
+            raise ValueError("tag: search syntax is not supported; use namespace:value")
         elif field in _SCALAR_FIELDS:
             if field in scalars:
                 raise ValueError(f"{field} may only appear once")
             scalars[field] = _value(raw)
         else:
-            raise ValueError(f"unknown search field: {field}")
+            subjects.append(
+                CatalogSubjectFilter(
+                    namespace=_value(field, allow_whitespace=True),
+                    value=_value(raw, allow_whitespace=True),
+                )
+            )
     query = CatalogDiscoveryQuery(
         search=" ".join(" ".join(words).split()) or None,
         title=" ".join(" ".join(titles).split()) or None,
@@ -215,6 +217,12 @@ def _quoted(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def _render_namespace(value: str) -> str:
+    if value in _RESERVED_NAMESPACES:
+        return json.dumps(value, ensure_ascii=False)
+    return _quoted(value)
+
+
 def _render_range(lower: str, upper: str) -> str:
     return lower if lower == upper else f"{lower}..{upper}"
 
@@ -241,7 +249,7 @@ def render_search_query(query: CatalogDiscoveryQuery) -> str | None:
     if query.gid is not None:
         clauses.append(f"gid:{query.gid}")
     clauses.extend(
-        f"tag:{_quoted(subject.namespace)}:{_quoted(subject.value)}"
+        f"{_render_namespace(subject.namespace)}:{_quoted(subject.value)}"
         for subject in query.subjects
     )
     for field, timestamp_range in (
