@@ -1,4 +1,6 @@
+import fcntl
 import json
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import pytest
@@ -121,6 +123,103 @@ async def test_injected_catalog_starts_without_a_legacy_compatibility_hook(
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+async def test_version_and_openapi_report_installed_distribution_metadata(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+) -> None:
+    installed_version = version("h2hdb-opds")
+    app = create_app(opds_config, catalog_fixture.catalog)
+
+    async with app_client(app) as client:
+        response = await client.get("/version")
+        schema = await client.get("/openapi.json")
+
+    assert response.status_code == 200
+    assert response.json() == {"service": "h2hdb-opds", "version": installed_version}
+    assert response.headers["cache-control"] == "no-store"
+    assert schema.status_code == 200
+    assert schema.json()["info"]["version"] == installed_version
+    assert app.version == installed_version
+    assert catalog_fixture.catalog.revision_lookups == []
+    assert catalog_fixture.catalog.list_calls == []
+
+
+@pytest.mark.parametrize("maintenance", ("marker", "lock"))
+async def test_version_remains_anonymous_during_maintenance_without_metadata_rereads(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    maintenance: str,
+) -> None:
+    metadata_calls: list[str] = []
+
+    def installed_version(distribution: str) -> str:
+        metadata_calls.append(distribution)
+        assert len(metadata_calls) == 1
+        return "9.8.7"
+
+    monkeypatch.setattr(app_module, "version", installed_version)
+    config = OPDSConfig(
+        library_root=opds_config.library_root,
+        coordination_root=opds_config.coordination_root,
+        public_base_url="https://books.example",
+        auth=BasicAuthConfig(username="reader", password=SecretStr("secret")),
+        server=ServerConfig(trusted_proxy_ips=("127.0.0.1",)),
+    )
+    app = create_app(config, catalog_fixture.catalog)
+    assert metadata_calls == ["h2hdb-opds"]
+
+    async with app_client(app, base_url="https://books.example") as client:
+        before = await client.get("/version")
+        with (config.coordination_root / "publication.lock").open("rb") as lock:
+            if maintenance == "marker":
+                (config.coordination_root / "ACTIVATING").touch()
+            else:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            response = await client.get("/version")
+            health = await client.get("/health")
+            protected = await client.get(
+                "/opds/v2/publications", auth=("reader", "secret")
+            )
+            schema = await client.get("/openapi.json")
+
+    assert before.status_code == response.status_code == 200
+    assert (
+        before.json()
+        == response.json()
+        == {
+            "service": "h2hdb-opds",
+            "version": "9.8.7",
+        }
+    )
+    assert response.headers["cache-control"] == "no-store"
+    assert "www-authenticate" not in response.headers
+    assert health.status_code == 200
+    assert health.json() == {"status": "ok"}
+    assert protected.status_code == 503
+    assert schema.status_code == 200
+    assert schema.json()["info"]["version"] == app.version == "9.8.7"
+    assert metadata_calls == ["h2hdb-opds"]
+    assert catalog_fixture.catalog.revision_lookups == []
+    assert catalog_fixture.catalog.list_calls == []
+
+
+def test_missing_distribution_metadata_fails_app_creation(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def missing_version(distribution: str) -> str:
+        raise PackageNotFoundError(distribution)
+
+    monkeypatch.setattr(app_module, "version", missing_version)
+
+    with pytest.raises(PackageNotFoundError, match="h2hdb-opds"):
+        create_app(opds_config, catalog_fixture.catalog)
+
+    assert catalog_fixture.catalog.revision_lookups == []
 
 
 def test_basic_auth_requires_https_and_an_explicit_tls_boundary(

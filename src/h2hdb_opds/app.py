@@ -3,6 +3,7 @@ __all__ = ["create_app"]
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from importlib.metadata import version
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
@@ -38,6 +39,7 @@ def create_app(
     config: OPDSConfig,
     catalog: CatalogReader | None = None,
 ) -> FastAPI:
+    package_version = version("h2hdb-opds")
     settings = config
     reader = catalog
     library_reads = LibraryReadCoordinator(
@@ -74,6 +76,7 @@ def create_app(
 
     application = FastAPI(
         title=settings.title,
+        version=package_version,
         lifespan=lifespan,
     )
     authenticator = BasicAuthenticator(settings)
@@ -178,6 +181,11 @@ def create_app(
     @application.get("/health", name="health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @application.get("/version", name="version")
+    def service_version(response: Response) -> dict[str, str]:
+        response.headers["Cache-Control"] = "no-store"
+        return {"service": "h2hdb-opds", "version": package_version}
 
     application.include_router(
         create_opds2_router(settings, authenticator, catalog_service)

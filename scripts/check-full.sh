@@ -39,7 +39,50 @@ smoke_site="$("$smoke_python" -c \
     "$development_site" > "$smoke_site/development-dependencies.pth"
 (
     cd "$artifact_root"
-    "$smoke_python" -I -c \
-        'import h2hdb_opds, pathlib, sys; assert pathlib.Path(h2hdb_opds.__file__).resolve().is_relative_to(pathlib.Path(sys.prefix).resolve())'
+    "$smoke_python" -I - "$repository_root/pyproject.toml" <<'PY'
+import asyncio
+import sys
+import tempfile
+import tomllib
+from importlib.metadata import version
+from pathlib import Path
+
+import httpx
+
+import h2hdb_opds
+
+assert Path(h2hdb_opds.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+expected_version = tomllib.loads(Path(sys.argv[1]).read_text())["project"]["version"]
+assert version("h2hdb-opds") == expected_version
+
+
+async def check_version_api() -> None:
+    with tempfile.TemporaryDirectory() as temporary_root:
+        root = Path(temporary_root)
+        app = h2hdb_opds.create_app(
+            h2hdb_opds.OPDSConfig(
+                library_root=root / "current",
+                coordination_root=root / "coordination",
+                public_base_url="http://wheel.example",
+            )
+        )
+        # ASGI transport exercises package metadata without opening a database.
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://wheel.example"
+        ) as client:
+            response = await client.get("/version")
+            assert response.status_code == 200
+            assert response.json() == {
+                "service": "h2hdb-opds",
+                "version": expected_version,
+            }
+            assert response.headers["Cache-Control"] == "no-store"
+            schema = await client.get("/openapi.json")
+            assert schema.status_code == 200
+            assert schema.json()["info"]["version"] == expected_version
+
+
+asyncio.run(check_version_api())
+PY
     "$smoke_python" -I -m h2hdb_opds --help >/dev/null
 )

@@ -265,6 +265,12 @@ path 均不得呼叫 `migrate()`。
 - OPDS 不得建立、修改或刪除 coordination state。正常 SIGTERM、Compose stop
   或非正常 process termination 都只靠 FD close 釋放 shared lock；health route
   在 activation 期間維持可用，避免把受控 maintenance 誤判成 process failure。
+- `GET /version` 回傳 `service="h2hdb-opds"` 與已安裝 distribution metadata 的
+  `version`，不需要 authentication、不讀取 catalog，activation 期間仍可查詢，並帶
+  `Cache-Control: no-store`。OpenAPI `info.version` 使用相同的已安裝套件版本，
+  不得另設 hardcoded version 或讀取 checkout 的 `pyproject.toml` 作為 runtime source。
+  Editable 環境更新 project version 後必須重裝 package metadata 並重啟服務；版本回應
+  不代表 Git commit identity 或 rebuild completion。`/health` 維持既有契約。
 - absolute link 只能來自 canonical public base URL，不能信任 request Host。
   Basic auth 只允許 effective HTTPS：local TLS 或明確 trusted
   TLS-terminating proxy。credential comparison 使用

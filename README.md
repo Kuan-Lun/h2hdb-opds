@@ -247,6 +247,26 @@ curl http://127.0.0.1:8000/health
 `http://127.0.0.1:8000/opds/v1.2/catalog`。
 這份設定只供本機連線，沒有啟用登入；手機或其他電腦需要下一節的對外設定。
 
+要確認服務使用的套件版本，可另外查詢：
+
+```bash
+curl http://127.0.0.1:8000/version
+```
+
+`GET /version` 回傳 JSON，`service` 固定為 `h2hdb-opds`，`version` 是已安裝套件的
+distribution metadata 版本。這個請求不需要登入、不讀取 catalog，書庫 activation
+期間仍可查詢；回應帶有 `Cache-Control: no-store`。`/openapi.json` 的 `info.version`
+也使用相同套件版本。
+
+在已安裝開發依賴的 editable 環境中，修改 `pyproject.toml` 的 project version 後，
+須重新安裝套件 metadata，再重新啟動服務：
+
+```bash
+uv pip install --python .venv/bin/python --no-deps --no-build-isolation --editable .
+```
+
+版本回應只表示已安裝套件宣告的版本，不提供 Git commit 識別，也不能證明重建已完成。
+
 ### 提供給其他裝置並啟用登入
 
 `public_base_url` 必須是閱讀器實際可連到的位址，因為封面、下載及翻頁連結
