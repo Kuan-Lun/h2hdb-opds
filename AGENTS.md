@@ -116,8 +116,21 @@
 - `scripts/format.sh`：明確執行會修改檔案的 formatter 或 fixer。
 - `scripts/check-fast.sh`：離線、唯讀的 Ruff、format check、mypy 與
   markdownlint；每次非 merge commit 執行。
-- `scripts/check-full.sh`：fast gate、完整測試、build、wheel smoke 及本
-  repository 的特殊檢查；整合候選只跑一次。
+- `scripts/check-full.sh`：fast gate、bounded non-deep 測試、build、wheel smoke
+  及本 repository 的特殊檢查；整合候選只跑一次。所有階段共用 300 秒期限，
+  包括 collection、execution、teardown、階段切換與 owned process-group cleanup。
+  `scripts/run-checks.py full` 是唯一 supervisor，`check-full-steps.sh` 只是內部
+  sequential body，不得由 hooks 直接執行以繞過期限。
+- `.venv/bin/python scripts/run-checks.py pytest` 單獨執行同樣有 300 秒總期限的
+  non-deep pytest。每次非 merge commit 只執行 fast gate，不重跑完整測試。
+  plain pytest 預設排除 `deep`，但沒有 aggregate deadline。
+- `.venv/bin/python scripts/run-checks.py deep` 只執行明確標記的 deep cases，
+  是必要時手動使用且不限執行時間的入口，不進入 hooks 或 merge gate。
+  不得為了略過必要的快速整合檢查而標記 deep。
+- Supervisor 在 POSIX new session/process group 執行檢查，預留終止時間並驗證
+  leader 與同 group descendants 都已退出；逾時、無法確認清除或正常 leader exit
+  後仍有 descendants 都視為失敗。刻意脫離 group/session 的 child 與 supervisor
+  的不可攔截終止不在保證內；不支援的平台須在啟動 child 前拒絕。
 - dependency audit 可連網，但 hooks 只驗證本機 receipt，不在 commit
   過程連網。
 - GitHub Actions 只呼叫相同 scripts，並保留 trusted publishing、平台特有
@@ -282,6 +295,9 @@ path 均不得呼叫 `migrate()`。
   Editable 環境更新 project version 後必須重裝 package metadata 並重啟服務；版本回應
   不代表 Git commit identity 或 rebuild completion。`/health` 維持既有契約。
 - absolute link 只能來自 canonical public base URL，不能信任 request Host。
+  `public_base_url` 是唯一外部 path prefix authority；ASGI `root_path` 或 named/
+  unnamed mount 不得重複加入 prefix。尾斜線只對 matched route 產生 canonical
+  `307` 與 no-store，保留原 query 與 method，不得因此改寫 effective scheme。
   Basic auth 只允許 effective HTTPS：local TLS 或明確 trusted
   TLS-terminating proxy。credential comparison 使用
   `secrets.compare_digest`。
@@ -304,9 +320,28 @@ path 均不得呼叫 `migrate()`。
   維持原錯誤。Publication detail、acquisition 與 media 不套用 revision recovery。
   目錄、OpenSearch、publication detail、revision 404 與 recovery 回應使用
   `Cache-Control: no-store`；activation 維持 `503`、`Retry-After: 1` 與 no-store。
+- `LibraryUnavailable` 只表示 publication lock contention 或存在 `ACTIVATING`
+  entry，回 `503` 與 `code="library_activating"`。無法驗證 coordination state、
+  缺少 lock、權限/I/O 與封存檔案大小不一致回 `500`、
+  `code="library_integrity_error"`；catalog contract、facet bundle 或 descriptor
+  矛盾回 `500`、`code="catalog_integrity_error"`。兩類 integrity error 使用
+  no-store 且不得帶 Retry-After，不得偽裝為 revision 不存在或進入 recovery。
+  移除 integrity-as-maintenance、corrupt-facet-as-revision-404 與 sealed extent
+  conflict-409 路徑，不保留狀態碼 shim。
+- Publication/artifact/media missing 與 framework HTTP error 必須 no-store；
+  authentication document/challenge 同樣 no-store。成功 acquisition/media 的
+  ETag、Range 與 conditional response 契約維持獨立，不得整體停用 bytes caching。
+- 每個 OpenAPI method operation ID 必須唯一且不受 Python hash seed 影響；
+  OPDS 1.2 GET/HEAD 可共用 handler，但分別註冊並保留 GET route name authority。
 
 ### Verification
 
+- SQLite smoke 整合是自動 gate 的必要檢查，不得因安裝 core wheel 缺少 generator
+  而 skip。使用明確的 `H2HDB_CORE_REPOSITORY` 或成對提供
+  `H2HDB_SQLITE_FIXTURE_DATABASE`／`H2HDB_SQLITE_FIXTURE_RECEIPT`；editable core
+  source discovery 只能是可選便利路徑，不得依賴固定 sibling clone。
+  預先產生的 fixture 必須複製到 temporary test root，驗證 smoke profile、
+  receipt/database binding 與 HTTP oracle。大型 scalability profiles 保持手動。
 - tests 使用 injected reader、temporary artifact 與 local ASGI transport，
   不得啟動 production server、連線 production database 或依賴外部網路。
 - OPDS 1.2 XML tests 使用 namespace-aware semantic assertions，不使用易碎的

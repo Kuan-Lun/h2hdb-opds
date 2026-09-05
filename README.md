@@ -61,6 +61,7 @@ OPDS 2.0 提供封面、縮圖及 CBZ 下載。實際按鈕名稱與篩選介面
 | 帶有中文標籤的作品 | `language:chinese` |
 | 標籤值含有空白，也可使用手機鍵盤的彎雙引號 | `female:“mind control”` |
 | 同時帶有語言與作者標籤 | `language:chinese artist:alice` |
+| 同時帶有同一命名空間中的兩個標籤 | `artist:alice artist:bob` |
 | 標題含「不知火」、帶有中文標籤，且為 40 到 200 頁 | `title:不知火 language:chinese pages:40..200` |
 | 在指定日期區間下載的作品 | `downloaded:2026-09-01..2026-09-05` |
 
@@ -91,6 +92,7 @@ female:“mind control”
 其他命名空間均視為來源標籤，包括 Unicode 名稱與書庫中尚未出現的名稱。
 例如 `language:chinese` 是來源標籤，`unknown:value` 是合法條件，沒有符合資料時回傳空結果。
 多個 `title:` 條件或多個不同標籤都是 AND；
+命名空間相同但值不同的標籤也必須全部符合。
 相同標籤重複出現只計一次。`gid:`、`uploaded:`、`downloaded:` 與 `pages:`
 各只能出現一次。
 
@@ -354,7 +356,8 @@ OPDS 同時需要 `acquisitions` 與 `artwork`，不能只掛載漫畫檔案的�
 | 更新後翻頁回到第一頁，或收到 303 | 目錄已換版，伺服器保留查詢條件並重新開始分頁；閱讀器若未跟隨重新導向，請重新開啟書庫入口 |
 | 舊作品、下載或圖片連結出現 404 | 書庫版本可能已更新，回到書庫入口重新選取作品 |
 | 搜尋出現 422 | 檢查搜尋語法；手動呼叫 OPDS 2.0 時使用 `query`，成對的篩選參數不可缺漏 |
-| 暫時無法使用（503） | 書庫可能正在切換發佈版本，稍後重試；持續發生時請由管理者檢查 ingest 狀態、檔案與資料庫是否一致 |
+| 暫時無法使用（503，`library_activating`） | 書庫正在切換或仍有切換標記；稍後重試，持續發生時由管理者檢查 ingest 復原狀態 |
+| 資料不一致（500，`library_integrity_error` 或 `catalog_integrity_error`） | 由管理者檢查掛載、權限、檔案與已發佈資料契約；這不是等待切換完成的提示 |
 | 下載或逐頁閱讀出現 416 | 用戶端要求的下載範圍無效；服務一次只支援一個有效的 byte range，可嘗試重新下載 |
 | 書庫能開啟但沒有作品 | 確認 ingest 已發佈可下載檔案；只有中繼資料的書庫會顯示為空 |
 | 搜尋結果為空 | 先減少條件，確認 GID、標籤大小寫與空白、UTC 日期及頁數是否符合 |
@@ -370,6 +373,52 @@ OPDS 同時需要 `acquisitions` 與 `artwork`，不能只掛載漫畫檔案的�
 未指定 revision 的失敗、未來 revision、無效參數，以及作品詳情、下載與圖片請求
 不套用這個恢復流程。切換期間仍回 `503` 與 `Retry-After: 1`；它是重試提示，
 不代表切換保證在一秒內完成。
+完整性錯誤使用 500 與穩定的 `code`，同時記錄含代碼與原因的 error log，
+不附 `Retry-After`；作品、檔案與路由的
+404 回應也帶 `no-store`，避免新增作品後仍沿用舊的「找不到」回應。
+這取代了過去將完整性錯誤回報成 503、部分錯誤 facet 回報成 revision 404，
+以及封存檔案大小或 extent 不一致時回報 409 的行為。
+
+公開連結與尾斜線的 307 導向都以 `public_base_url` 為準，包含設定的路徑前綴；
+代理或 ASGI mount 的相同前綴不會再重複附加。OPDS 1.2 的 GET／HEAD 在 OpenAPI
+使用各自唯一且穩定的 operation ID；依賴舊生成 ID 的用戶端應重新產生。
+
+## 開發驗證
+
+日常修改及每次非 merge commit 使用 `scripts/check-fast.sh`。
+整合前的 `scripts/check-full.sh` 包含 fast checks、協定 schema、non-deep tests、
+sdist/wheel build 與 installed wheel smoke；全部階段共用五分鐘期限，逾時即失敗。
+期限也包含測試收尾與同一 process group 的子程序清除。
+
+SQLite 代表性整合測試必須執行。使用 core source checkout 時，明確傳入位置：
+
+```bash
+H2HDB_CORE_REPOSITORY=/path/to/h2hdb scripts/check-full.sh
+```
+
+只有 core wheel 的測試環境也可使用事先產生的 smoke database 與 receipt，
+不需要固定的相鄰 checkout：
+
+```bash
+# 在持有相容 core source 的環境先產生 temporary fixture。
+.venv/bin/python /path/to/h2hdb/benchmarks/sqlite_catalog_scalability.py \
+  --profile smoke --database /tmp/opds-smoke.sqlite3 \
+  --receipt /tmp/opds-smoke-receipt.json
+
+# 將這兩個測試檔案提供給 wheel-only 驗證環境。
+H2HDB_SQLITE_FIXTURE_DATABASE=/tmp/opds-smoke.sqlite3 \
+H2HDB_SQLITE_FIXTURE_RECEIPT=/tmp/opds-smoke-receipt.json \
+  scripts/check-full.sh
+```
+
+測試會複製並驗證 fixture，缺少或不符契約時明確失敗。不要使用實際書庫資料庫。
+SQLite smoke 只有 165 筆作品；大型 scalability benchmark 保留為手動效能調查。
+
+只需測試時，使用 `.venv/bin/python scripts/run-checks.py pytest`，同樣受五分鐘
+總期限限制。直接執行 `.venv/bin/pytest` 預設也選 non-deep，但本身沒有總時間限制。
+較長案例必須明確標記 `deep`，必要時才以
+`.venv/bin/python scripts/run-checks.py deep` 手動執行；此入口只選 deep cases，
+不限制執行時間，也不會在 commit 或合併時自動啟動。
 
 ## 授權
 
