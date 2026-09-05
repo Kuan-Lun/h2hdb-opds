@@ -258,11 +258,11 @@ distribution metadata 版本。這個請求不需要登入、不讀取 catalog�
 期間仍可查詢；回應帶有 `Cache-Control: no-store`。`/openapi.json` 的 `info.version`
 也使用相同套件版本。
 
-在已安裝開發依賴的 editable 環境中，修改 `pyproject.toml` 的 project version 後，
+在 editable 開發環境中，修改 `pyproject.toml` 的 project version 後，
 須重新安裝套件 metadata，再重新啟動服務：
 
 ```bash
-uv pip install --python .venv/bin/python --no-deps --no-build-isolation --editable .
+uv pip install --python .venv/bin/python --no-deps --editable .
 ```
 
 版本回應只表示已安裝套件宣告的版本，不提供 Git commit 識別，也不能證明重建已完成。
