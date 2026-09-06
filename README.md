@@ -24,7 +24,7 @@ OPDS 2.0 提供封面、縮圖及 CBZ 下載。實際按鈕名稱與篩選介面
 
 ## 瀏覽與下載
 
-進入書庫後，可以看到八個入口：
+進入書庫後，可以看到十一個入口：
 
 | 畫面上的名稱 | 內容 |
 | --- | --- |
@@ -33,29 +33,36 @@ OPDS 2.0 提供封面、縮圖及 CBZ 下載。實際按鈕名稱與篩選介面
 | `Recently Downloaded` | 依來源下載時間排列的最新 128 部作品 |
 | `Artists` | 先選作者標籤，再瀏覽作品 |
 | `Groups` | 先選團隊標籤，再瀏覽作品 |
+| `Parodies` | 先選原作標籤，再瀏覽以該原作為基礎的二創作品 |
+| `Characters` | 先選角色名稱標籤，再瀏覽包含該角色的作品 |
 | `Soushuuhen` | 含有 `other:soushuuhen` 標籤的作品 |
 | `Multi-work Series` | 含有 `other:multi-work series` 標籤的作品 |
 | `Uncensored` | 含有 `other:uncensored` 標籤的作品 |
+| `Goudoushi` | 含有 `other:goudoushi` 標籤的合同本 |
 
-作者與團隊目錄依各標籤所屬作品的最新上傳時間，由新到舊排列；時間相同時，
-依標籤名稱的 UTF-8 順序排列。兩者分別使用 `artist` 與 `group` 標籤命名空間。
-這五個新入口的作品均依上傳時間由新到舊排列，同時間依不分大小寫的作品標題
+作者、團隊、原作與角色目錄依各標籤所屬作品的最新上傳時間，由新到舊排列；
+時間相同時，依標籤名稱的 UTF-8 順序排列。四者分別使用 `artist`、`group`、
+`parody` 與 `character` 標籤命名空間。合同本直接篩選 `other:goudoushi`，
+不是瀏覽名為 `goudoushi` 的命名空間。
+這些標籤入口的作品均依上傳時間由新到舊排列，同時間依不分大小寫的作品標題
 排序，標題也相同時由固定作品識別順序決定。
 
-首頁八個入口與作者／團隊子入口使用目標清單排序第一本 CBZ 的封面縮圖。
-首頁的 `Artists`／`Groups` 使用第一個作者／團隊內第一本作品的縮圖。
+首頁入口與標籤子入口使用目標清單排序第一本 CBZ 的封面縮圖。
+首頁的 `Artists`、`Groups`、`Parodies` 與 `Characters` 使用第一個標籤內
+第一本作品的縮圖。
 空入口或第一本作品沒有封面時，省略縮圖；不會改取後面的作品。
-縮圖重用 ingest 預先產生的 320px 圖片，作者／團隊頁一次批次取得當頁資料。
+縮圖重用 ingest 預先產生的 320px 圖片，標籤目錄頁一次批次取得當頁資料。
 OPDS 1.2 使用標準 artwork thumbnail link；OPDS 2 採用
 [`alternate`／`icon` 社群慣例](https://github.com/UstadMobile/RESPECT-Consumer-App-Integration-Guide#appendix-a-sample-opds-catalogs)。
 [OPDS 2 尚未統一定義導覽圖片](https://github.com/opds-community/drafts/issues/64#issuecomment-1691310279)，
 實際是否顯示縮圖取決於閱讀器。
 
-作者／團隊名稱清單與作品清單都可翻頁，預設每頁 50 筆、最多 128 筆；
+標籤名稱清單與作品清單都可翻頁，預設每頁 50 筆、最多 128 筆；
 透過 `next` 取得下一頁，不會一次展開所有名稱或作品。
 兩版 HTTP 路徑為 `/opds/v1.2/browse/{category}` 與 `/opds/v2/browse/{category}`，
-其中 category 是 `artists`、`groups`、`soushuuhen`、`multi-work-series` 或
-`uncensored`。作者／團隊子入口以 `tag` 傳遞完整標籤值；請跟隨伺服器產生的
+其中 category 是 `artists`、`groups`、`parodies`、`characters`、`soushuuhen`、
+`multi-work-series`、`uncensored` 或 `goudoushi`。四種標籤目錄的子入口以 `tag`
+傳遞完整標籤值；請跟隨伺服器產生的
 連結，以保留特殊字元、排序位置與目錄版本。
 新目錄可瀏覽來源容許的空白標籤及最多 65536 UTF-8 bytes 的標籤；空值顯示為
 `(empty tag)`。閱讀器或反向代理可能限制網址長度。既有搜尋欄位的標籤長度限制

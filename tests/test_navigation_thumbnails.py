@@ -27,6 +27,12 @@ from .test_opds_conformance import _assert_valid_atom, _opds2_validation
 
 _ATOM = f"{{{ATOM_NAMESPACE}}}"
 _THUMBNAIL_REL = "http://opds-spec.org/image/thumbnail"
+_DIRECTORIES = (
+    ("artists", "artist"),
+    ("groups", "group"),
+    ("parodies", "parody"),
+    ("characters", "character"),
+)
 
 
 def _publication(
@@ -78,7 +84,16 @@ def _catalog(fixture: CatalogFixture) -> FakeCatalog:
                 title=title,
                 uploaded=uploaded,
                 downloaded=downloaded,
-                subjects=(("artist", artist), ("group", group), ("other", other)),
+                subjects=(
+                    ("artist", artist),
+                    ("group", group),
+                    ("parody", artist),
+                    ("character", artist),
+                    ("other", other),
+                    ("other", "goudoushi")
+                    if other == "uncensored"
+                    else ("goudoushi", "goudoushi"),
+                ),
             )
             for gid, title, uploaded, downloaded, artist, group, other in records
         )
@@ -177,16 +192,19 @@ def test_navigation_uses_each_targets_authoritative_first_publication(
         "recently-downloaded": 2101,
         "artists": 2103,
         "groups": 2103,
+        "parodies": 2103,
+        "characters": 2103,
         "soushuuhen": 2103,
         "multi-work-series": 2105,
         "uncensored": 2104,
+        "goudoushi": 2104,
     }
     assert [limit for _, _, limit in catalog.list_calls] == [1]
     assert len(catalog.recent_list_calls) == 2
     assert [
         (namespace, limit) for namespace, _, limit, _ in catalog.tag_bundle_calls
-    ] == [("artist", 1), ("group", 1)]
-    assert [limit for _, limit, _ in catalog.tag_calls] == [1] * 5
+    ] == [("artist", 1), ("group", 1), ("parody", 1), ("character", 1)]
+    assert [limit for _, limit, _ in catalog.tag_calls] == [1] * 8
     assert all(revision == selected.revision for revision in catalog.list_revisions)
     assert all(revision == selected.revision for _, _, revision in catalog.tag_calls)
     assert (
@@ -216,9 +234,12 @@ async def test_root_thumbnails_use_canonical_revision_pinned_media_urls(
         "Recently Downloaded": 2101,
         "Artists": 2103,
         "Groups": 2103,
+        "Parodies": 2103,
+        "Characters": 2103,
         "Soushuuhen": 2103,
         "Multi-work Series": 2105,
         "Uncensored": 2104,
+        "Goudoushi": 2104,
     }
     for href, _image in entries.values():
         assert href.startswith("https://trusted.example/library/")
@@ -231,9 +252,7 @@ async def test_root_thumbnails_use_canonical_revision_pinned_media_urls(
         assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize(
-    ("category", "namespace"), (("artists", "artist"), ("groups", "group"))
-)
+@pytest.mark.parametrize(("category", "namespace"), _DIRECTORIES)
 @pytest.mark.parametrize("protocol", ("v1.2", "v2"))
 async def test_directory_thumbnails_page_fifty_without_per_tag_reads(
     catalog_fixture: CatalogFixture,
@@ -282,11 +301,15 @@ async def test_directory_thumbnails_page_fifty_without_per_tag_reads(
 
 
 @pytest.mark.parametrize("protocol", ("v1.2", "v2"))
+@pytest.mark.parametrize("category", ("artists", "parodies", "characters"))
 async def test_navigation_thumbnail_link_serves_selected_thumbnail_bytes(
-    catalog_fixture: CatalogFixture, opds_config: OPDSConfig, protocol: str
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    protocol: str,
+    category: str,
 ) -> None:
     async with app_client(create_app(opds_config, _catalog(catalog_fixture))) as client:
-        directory = await client.get(f"/opds/{protocol}/browse/artists")
+        directory = await client.get(f"/opds/{protocol}/browse/{category}")
         thumbnail_url = _navigation(directory)["Alpha"][1]
         assert thumbnail_url is not None
         thumbnail = await client.get(thumbnail_url)
@@ -296,12 +319,16 @@ async def test_navigation_thumbnail_link_serves_selected_thumbnail_bytes(
 
 
 @pytest.mark.parametrize("protocol", ("v1.2", "v2"))
+@pytest.mark.parametrize("category", ("artists", "parodies", "characters"))
 async def test_directory_thumbnail_uses_title_tie_breaker_for_each_tag(
-    catalog_fixture: CatalogFixture, opds_config: OPDSConfig, protocol: str
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    protocol: str,
+    category: str,
 ) -> None:
     catalog = _catalog(catalog_fixture)
     async with app_client(create_app(opds_config, catalog)) as client:
-        response = await client.get(f"/opds/{protocol}/browse/artists")
+        response = await client.get(f"/opds/{protocol}/browse/{category}")
     assert {
         title: _thumbnail_gid(image)
         for title, (_, image) in _navigation(response).items()
@@ -316,9 +343,12 @@ async def test_navigation_omits_thumbnail_when_exact_first_book_has_no_pages(
     subjects = (
         ("artist", "Artist"),
         ("group", "Group"),
+        ("parody", "Parody"),
+        ("character", "Character"),
         ("other", "soushuuhen"),
         ("other", "multi-work series"),
         ("other", "uncensored"),
+        ("other", "goudoushi"),
     )
     first = _publication(
         catalog_fixture.publications[0],
@@ -347,8 +377,10 @@ async def test_navigation_omits_thumbnail_when_exact_first_book_has_no_pages(
     async with app_client(create_app(opds_config, catalog)) as client:
         for path in (
             root,
-            f"/opds/{protocol}/browse/artists",
-            f"/opds/{protocol}/browse/groups",
+            *(
+                f"/opds/{protocol}/browse/{category}"
+                for category, _namespace in _DIRECTORIES
+            ),
         ):
             response = await client.get(path)
             assert all(image is None for _, image in _navigation(response).values())

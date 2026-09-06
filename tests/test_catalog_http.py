@@ -98,9 +98,12 @@ async def test_root_groups_catalogs_and_tag_browsing_and_advertises_search(
         "All Publications",
         "Artists",
         "Groups",
+        "Parodies",
+        "Characters",
         "Soushuuhen",
         "Multi-work Series",
         "Uncensored",
+        "Goudoushi",
     ]
     assert [entry["title"] for entry in document["groups"][1]["navigation"]] == [
         "Recently Uploaded",
@@ -120,6 +123,9 @@ async def test_root_groups_catalogs_and_tag_browsing_and_advertises_search(
         3,
     ]
     assert [entry["rel"] for entry in navigation] == [
+        "subsection",
+        "subsection",
+        "subsection",
         "subsection",
         "subsection",
         "subsection",

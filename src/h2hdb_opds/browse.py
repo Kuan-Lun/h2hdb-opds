@@ -9,12 +9,28 @@ from h2hdb import CatalogTagFilter
 from .config import OPDSConfig
 from .urls import external_url
 
+
+@dataclass(frozen=True, slots=True)
+class _BrowseDefinition:
+    title: str
+    namespace: str
+    value: str | None = None
+
+
+_BROWSE_DEFINITIONS = {
+    "artists": _BrowseDefinition("Artists", "artist"),
+    "groups": _BrowseDefinition("Groups", "group"),
+    "parodies": _BrowseDefinition("Parodies", "parody"),
+    "characters": _BrowseDefinition("Characters", "character"),
+    "soushuuhen": _BrowseDefinition("Soushuuhen", "other", "soushuuhen"),
+    "multi-work-series": _BrowseDefinition(
+        "Multi-work Series", "other", "multi-work series"
+    ),
+    "uncensored": _BrowseDefinition("Uncensored", "other", "uncensored"),
+    "goudoushi": _BrowseDefinition("Goudoushi", "other", "goudoushi"),
+}
 BROWSE_CATEGORIES = {
-    "artists": "Artists",
-    "groups": "Groups",
-    "soushuuhen": "Soushuuhen",
-    "multi-work-series": "Multi-work Series",
-    "uncensored": "Uncensored",
+    category: definition.title for category, definition in _BROWSE_DEFINITIONS.items()
 }
 
 
@@ -24,10 +40,11 @@ class BrowseTarget:
     tag: str | None = None
 
     def __post_init__(self) -> None:
-        if self.category not in BROWSE_CATEGORIES:
+        definition = _BROWSE_DEFINITIONS.get(self.category)
+        if definition is None:
             raise LookupError("Browse category not found")
-        if self.category not in {"artists", "groups"} and self.tag is not None:
-            raise ValueError("tag is only supported by artist and group directories")
+        if definition.value is not None and self.tag is not None:
+            raise ValueError("tag is only supported by namespace directories")
         if self.tag is not None:
             # Public immutable values validate the exact tag bytes and bounds.
             CatalogTagFilter(
@@ -37,24 +54,20 @@ class BrowseTarget:
 
     @property
     def namespace(self) -> str:
-        if self.category == "artists":
-            return "artist"
-        return "group" if self.category == "groups" else "other"
+        return _BROWSE_DEFINITIONS[self.category].namespace
 
     @property
     def subject(self) -> CatalogTagFilter | None:
-        if self.namespace != "other" and self.tag is None:
-            return None
         value = (
             self.tag
             if self.tag is not None
-            else (
-                "multi-work series"
-                if self.category == "multi-work-series"
-                else self.category
-            )
+            else _BROWSE_DEFINITIONS[self.category].value
         )
-        return CatalogTagFilter(namespace=self.namespace, value=value)
+        return (
+            None
+            if value is None
+            else CatalogTagFilter(namespace=self.namespace, value=value)
+        )
 
     @property
     def title(self) -> str:

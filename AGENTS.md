@@ -196,20 +196,24 @@ path 均不得呼叫 `migrate()`。
   version-neutral page/thumbnail routes；`publication.py` 負責 URI identifier 與
   acquisition relation policy。
 - OPDS 1.2 與 2 root 必須同樣提供 `All Publications`、
-  `Recently Uploaded`、`Recently Downloaded`、`Artists`、`Groups`、`Soushuuhen`、
-  `Multi-work Series` 與 `Uncensored` 八個 navigation item。OPDS 1.2
-  直接列出八個 entry；OPDS 2 以 `Browse` 與 `Recent Activity` 兩個 `groups`
+  `Recently Uploaded`、`Recently Downloaded`、`Artists`、`Groups`、`Parodies`、
+  `Characters`、`Soushuuhen`、`Multi-work Series`、`Uncensored` 與 `Goudoushi`
+  十一個 navigation item。OPDS 1.2 直接列出十一個 entry；OPDS 2 以
+  `Browse` 與 `Recent Activity` 兩個 `groups`
   分組，且不得另外重複頂層 `navigation`。All 與 search 使用 core discovery
   seek cursor，page limit 為 1..128；recent 使用 core
   authoritative order 的固定完整 top-128 window，不接受 limit、cursor 或
   offset，也不產生 next/first/crawlable。OPDS 1.2 feed/entry 必須滿足 Atom 與
   OPDS RNC；OPDS 2 feed 使用 `application/opds+json`，standalone publication
   使用 `application/opds-publication+json`。
-- `/browse/{category}` 的 artists/groups 目錄只讀取 exact `artist`/`group`
-  subject namespace；不能使用 contributor roles 代替。目錄依每個 tag 所屬作品的
+- `/browse/{category}` 的 artists/groups/parodies/characters 目錄只讀取 exact
+  `artist`/`group`/`parody`/`character` subject namespace；不能使用 contributor
+  roles 或其他 namespace 代替。Parody 是二創的原作標籤，character 是角色名稱。
+  目錄依每個 tag 所屬作品的
   latest uploaded time 降序、exact UTF-8 tag name 升序排列。`tag` query 選擇 exact
-  子入口，另外三個入口分別選擇 `other:soushuuhen`、`other:multi-work series` 與
-  `other:uncensored`。作品順序由 core 的 uploaded time 降序、casefolded UTF-8
+  子入口，另外四個入口分別選擇 `other:soushuuhen`、`other:multi-work series`、
+  `other:uncensored` 與 `other:goudoushi`。Goudoushi 表示合同本，不能解讀為
+  `goudoushi` namespace。作品順序由 core 的 uploaded time 降序、casefolded UTF-8
   sort title 升序及 immutable identity 決定。新入口兩層均提供 bounded cursor
   pages、first/next 與 revision recovery，預設 50、最高 128；不得載入全量再排序。
   core `list_tag_values_with_publications`/`list_tag_publications` 是唯一排序與分頁
@@ -218,8 +222,9 @@ path 均不得呼叫 `migrate()`。
   browse 使用 `CatalogTagFilter` 的來源 0..65536 UTF-8 bytes value bounds，
   不沿用 search 的 `CatalogSubjectFilter` 1..1024 bounds；空 tag 與省略 tag
   必須區分，顯示 placeholder 時 href 仍保留 exact 空值。
-- 首頁八個入口及 artist/group tag 子入口使用目標排序第一本 CBZ 的既有 320px
-  thumbnail。Artists/Groups 首頁入口沿第一個 tag 取其第一本作品；空入口或首本
+- 首頁十一個入口及四種 namespace 的 tag 子入口使用目標排序第一本 CBZ 的既有
+  320px thumbnail。Artists/Groups/Parodies/Characters 首頁入口沿第一個 tag
+  取其第一本作品；空入口或首本
   無封面時省略，不得跳到後面的作品。Root 的固定數量 preview reads 共用 selected
   revision 與 publication lock，回傳前重新確認 head；目錄頁以一個 bounded core
   `CatalogTagBundle` 取得逐項對齊的 publications。OPDS 1.2 使用標準

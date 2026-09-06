@@ -93,9 +93,12 @@ async def test_root_has_all_and_both_recent_navigation_entries(
             *expected_navigation,
             "Artists",
             "Groups",
+            "Parodies",
+            "Characters",
             "Soushuuhen",
             "Multi-work Series",
             "Uncensored",
+            "Goudoushi",
         ]
         entries = root.findall("atom:entry", _NAMESPACES)
         assert len(
