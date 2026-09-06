@@ -33,6 +33,7 @@ from h2hdb import (
     CatalogPublication,
     CatalogPublicationPresentation,
     CatalogReader,
+    CatalogReadError,
     CatalogRecentOrder,
     CatalogRecentWindow,
     CatalogRevision,
@@ -449,7 +450,12 @@ class CatalogService:
         revision: int | None,
     ) -> BrowsePageSelection:
         with self._library_reads.read():
-            selected = self._resolve_revision(revision)
+            try:
+                selected = self._resolve_revision(revision)
+            except CatalogReadError as error:
+                raise CatalogIntegrityError(
+                    "tag browse could not validate the catalog head"
+                ) from error
             selected_limit = self._selected_limit(limit)
             subject = target.subject
             try:
@@ -511,6 +517,10 @@ class CatalogService:
                         )
                 except CatalogCursorError as error:
                     raise CursorBoundaryInvalid from error
+                except CatalogReadError as error:
+                    raise CatalogIntegrityError(
+                        "tag browse could not read its sealed catalog authority"
+                    ) from error
             if (subject is None) != isinstance(page, CatalogTagPage):
                 raise CatalogIntegrityError("tag browse returned the wrong page family")
             if page.revision != selected or page.limit != selected_limit:

@@ -5,10 +5,10 @@ from contextlib import contextmanager
 from urllib.parse import urlencode
 
 from fastapi import Request
-from h2hdb import CatalogDiscoveryQuery, CatalogFacetKind
+from h2hdb import CatalogDiscoveryQuery, CatalogFacetKind, CatalogReadError
 
 from .browse import BrowseTarget, browse_url
-from .catalog_service import CatalogService, RevisionUnavailable
+from .catalog_service import CatalogIntegrityError, CatalogService, RevisionUnavailable
 from .config import OPDSConfig
 from .cursor import decode_discovery_cursor, decode_facet_cursor, decode_tag_cursor
 from .discovery import discovery_query_parameters
@@ -72,7 +72,14 @@ def recover_catalog_revision(
             or not _cursor_matches_revision(cursor, revision, facet, browse_target)
         ):
             raise
-        current = catalog.revision(None)
+        try:
+            current = catalog.revision(None)
+        except CatalogReadError as failure:
+            if browse_target is None:
+                raise
+            raise CatalogIntegrityError(
+                "tag browse could not validate the refreshed catalog head"
+            ) from failure
         if revision >= current.revision:
             raise
 

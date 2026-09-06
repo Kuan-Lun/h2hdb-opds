@@ -4,7 +4,13 @@ from urllib.parse import parse_qs, urlsplit
 from xml.etree import ElementTree
 
 import pytest
-from h2hdb import CatalogDiscoveryPage, CatalogSubject, CatalogTagPage
+from h2hdb import (
+    CatalogDiscoveryPage,
+    CatalogReadError,
+    CatalogRevision,
+    CatalogSubject,
+    CatalogTagPage,
+)
 from httpx import Response
 
 from h2hdb_opds import OPDSConfig, create_app
@@ -443,3 +449,67 @@ async def test_browse_fails_closed_when_reader_returns_wrong_page_family(
     assert response.status_code == 500
     assert response.json()["code"] == "catalog_integrity_error"
     assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("protocol", ["v1.2", "v2"])
+@pytest.mark.parametrize(
+    ("method", "category"),
+    [
+        ("get_catalog_revision", "artists"),
+        ("get_catalog_revision", "uncensored"),
+        ("list_tag_values", "artists"),
+        ("list_tag_publications", "uncensored"),
+    ],
+)
+async def test_browse_maps_public_core_read_errors_to_integrity_responses(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    protocol: str,
+    method: str,
+    category: str,
+) -> None:
+    catalog = _catalog(catalog_fixture)
+
+    def corrupt_read(*_args: object, **_kwargs: object) -> object:
+        raise CatalogReadError("sealed catalog authority is corrupt")
+
+    monkeypatch.setattr(catalog, method, corrupt_read)
+    async with app_client(create_app(opds_config, catalog)) as client:
+        response = await client.get(f"/opds/{protocol}/browse/{category}")
+    assert response.status_code == 500
+    assert response.json()["code"] == "catalog_integrity_error"
+    assert response.headers["cache-control"] == "no-store"
+    assert "retry-after" not in response.headers
+    assert "location" not in response.headers
+
+
+@pytest.mark.parametrize("protocol", ["v1.2", "v2"])
+async def test_browse_recovery_rejects_corrupt_fresh_head(
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    protocol: str,
+) -> None:
+    catalog = _catalog(catalog_fixture)
+    catalog.add_revision(replace(catalog.revision, revision=8), catalog.publications)
+    calls = 0
+
+    def corrupt_recovery_head(_revision: int | None = None) -> CatalogRevision:
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise CatalogReadError("refreshed catalog authority is corrupt")
+        return catalog.revision
+
+    monkeypatch.setattr(catalog, "get_catalog_revision", corrupt_recovery_head)
+    async with app_client(create_app(opds_config, catalog)) as client:
+        response = await client.get(
+            f"/opds/{protocol}/browse/artists?revision=7", follow_redirects=False
+        )
+    assert calls == 2
+    assert response.status_code == 500
+    assert response.json()["code"] == "catalog_integrity_error"
+    assert response.headers["cache-control"] == "no-store"
+    assert "retry-after" not in response.headers
+    assert "location" not in response.headers
