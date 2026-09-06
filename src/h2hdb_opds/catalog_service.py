@@ -10,15 +10,18 @@ __all__ = [
     "FacetPageSelection",
     "MediaRead",
     "MediaUnavailable",
+    "NavigationSelection",
     "PageLimitExceeded",
     "PublicationSelection",
     "PublicationUnavailable",
     "RevisionUnavailable",
 ]
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from types import MappingProxyType
 
 from h2hdb import (
     CatalogArtifact,
@@ -38,11 +41,12 @@ from h2hdb import (
     CatalogRecentWindow,
     CatalogRevision,
     CatalogRevisionNotFoundError,
+    CatalogTagBundle,
     CatalogTagCursor,
     CatalogTagPage,
 )
 
-from .browse import BrowseTarget
+from .browse import BROWSE_CATEGORIES, BrowseTarget
 from .cursor import (
     decode_discovery_cursor,
     decode_facet_cursor,
@@ -56,6 +60,7 @@ from .publication import publication_gid, publication_identifier
 _PSE_PAGE_COUNT_MAXIMUM = 4096
 _PSE_IMAGE_MEDIA_TYPE = "image/jpeg"
 _SUPPORTED_ARTIFACT_MEDIA_TYPE = "application/vnd.comicbook+zip"
+_UTC_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 class RevisionUnavailable(LookupError):
@@ -110,10 +115,17 @@ class FacetPageSelection:
 
 
 @dataclass(frozen=True, slots=True)
+class NavigationSelection:
+    revision: CatalogRevision
+    publications: Mapping[str, CatalogPublication]
+
+
+@dataclass(frozen=True, slots=True)
 class BrowsePageSelection:
     target: BrowseTarget
     page: CatalogTagPage | CatalogDiscoveryPage
     cursor: str | None
+    directory_publications: tuple[CatalogPublication, ...] = ()
 
     @property
     def next_cursor(self) -> str | None:
@@ -278,6 +290,126 @@ class CatalogService:
     def revision(self, requested: int | None) -> CatalogRevision:
         with self._library_reads.read():
             return self._resolve_revision(requested)
+
+    @classmethod
+    def _first_publication(
+        cls, page: CatalogDiscoveryPage, selected: CatalogRevision
+    ) -> CatalogPublication | None:
+        if (
+            not isinstance(page, CatalogDiscoveryPage)
+            or page.revision != selected
+            or page.limit != 1
+            or len(page.publications) > 1
+        ):
+            raise CatalogIntegrityError("navigation preview violates its page bounds")
+        if not page.publications:
+            return None
+        publication = page.publications[0]
+        cls._validate_publication(publication)
+        return publication
+
+    def _tag_bundle(
+        self,
+        selected: CatalogRevision,
+        *,
+        namespace: str,
+        after: CatalogTagCursor | None = None,
+        limit: int,
+    ) -> CatalogTagBundle:
+        bundle = self._reader().list_tag_values_with_publications(
+            namespace=namespace, after=after, limit=limit, revision=selected
+        )
+        if not isinstance(bundle, CatalogTagBundle):
+            raise CatalogIntegrityError("tag preview returned the wrong bundle family")
+        page = bundle.page
+        if (
+            not isinstance(page, CatalogTagPage)
+            or page.revision != selected
+            or page.namespace != namespace
+            or page.limit != limit
+            or len(page.values) > limit
+            or len(bundle.publications) != len(page.values)
+        ):
+            raise CatalogIntegrityError("tag preview bundle differs from its request")
+        for value, publication in zip(page.values, bundle.publications, strict=True):
+            self._validate_publication(publication)
+            published_at = publication.published_at
+            if published_at.tzinfo is None:
+                published_at = published_at.replace(tzinfo=UTC)
+            uploaded_time = (published_at - _UTC_EPOCH) // timedelta(microseconds=1)
+            if uploaded_time != value.latest_uploaded_time:
+                raise CatalogIntegrityError("tag preview has the wrong latest upload")
+            if not any(
+                subject.code == namespace and subject.name == value.value
+                for subject in publication.subjects
+            ):
+                raise CatalogIntegrityError("tag preview lacks its exact membership")
+        return bundle
+
+    def navigation(self, requested: int | None) -> NavigationSelection:
+        """Read each root target's first publication under one head fence."""
+        with self._library_reads.read():
+            try:
+                selected = self._resolve_revision(requested)
+                publications: dict[str, CatalogPublication] = {}
+                if self._has_acquisition_catalog(selected):
+                    with self._pinned_revision_read(selected):
+                        first = self._first_publication(
+                            self._reader().discover_publications(
+                                limit=1, revision=selected
+                            ),
+                            selected,
+                        )
+                        if first is None:
+                            raise CatalogIntegrityError(
+                                "nonempty acquisition catalog lacks its first publication"
+                            )
+                        publications["all"] = first
+                        for key, order in (
+                            ("recently-uploaded", CatalogRecentOrder.UPLOADED),
+                            ("recently-downloaded", CatalogRecentOrder.DOWNLOADED),
+                        ):
+                            window = self._reader().list_recent_publications(
+                                order=order, revision=selected
+                            )
+                            self._validate_recent_window(window, selected, order)
+                            if not window.publications:
+                                raise CatalogIntegrityError(
+                                    "nonempty acquisition catalog lacks its recent window"
+                                )
+                            publications[key] = window.publications[0]
+                        for category in BROWSE_CATEGORIES:
+                            target = BrowseTarget(category)
+                            subject = target.subject
+                            if subject is None:
+                                bundle = self._tag_bundle(
+                                    selected, namespace=target.namespace, limit=1
+                                )
+                                first = (
+                                    bundle.publications[0]
+                                    if bundle.publications
+                                    else None
+                                )
+                            else:
+                                first = self._first_publication(
+                                    self._reader().list_tag_publications(
+                                        subject=subject, limit=1, revision=selected
+                                    ),
+                                    selected,
+                                )
+                            if first is not None:
+                                publications[category] = first
+                        if self._resolve_revision(selected.revision) != selected:
+                            raise CatalogIntegrityError(
+                                "navigation previews disagree with the final catalog head"
+                            )
+            except (CatalogReadError, CatalogCursorError) as error:
+                raise CatalogIntegrityError(
+                    "navigation could not read its sealed catalog authority"
+                ) from error
+            return NavigationSelection(
+                revision=selected, publications=MappingProxyType(publications)
+            )
 
     def discovery_feed(
         self,
@@ -477,6 +609,7 @@ class CatalogService:
             if decoded_tag is not None and decoded_tag.namespace != target.namespace:
                 raise CursorBoundaryInvalid
             page: CatalogTagPage | CatalogDiscoveryPage
+            directory_publications: tuple[CatalogPublication, ...] = ()
             if not self._has_acquisition_catalog(selected):
                 if decoded is not None:
                     raise CursorBoundaryInvalid
@@ -500,21 +633,22 @@ class CatalogService:
             else:
                 try:
                     with self._pinned_revision_read(selected):
-                        page = (
-                            self._reader().list_tag_values(
+                        if subject is None:
+                            bundle = self._tag_bundle(
+                                selected,
                                 namespace=target.namespace,
                                 after=decoded_tag,
                                 limit=selected_limit,
-                                revision=selected,
                             )
-                            if subject is None
-                            else self._reader().list_tag_publications(
+                            page = bundle.page
+                            directory_publications = bundle.publications
+                        else:
+                            page = self._reader().list_tag_publications(
                                 subject=subject,
                                 after=decoded_publication,
                                 limit=selected_limit,
                                 revision=selected,
                             )
-                        )
                 except CatalogCursorError as error:
                     raise CursorBoundaryInvalid from error
                 except CatalogReadError as error:
@@ -538,7 +672,12 @@ class CatalogService:
                     )
                 for publication in page.publications:
                     self._validate_publication(publication)
-            return BrowsePageSelection(target=target, page=page, cursor=cursor)
+            return BrowsePageSelection(
+                target=target,
+                page=page,
+                cursor=cursor,
+                directory_publications=directory_publications,
+            )
 
     def publication(
         self,
@@ -585,6 +724,16 @@ class CatalogService:
                     order=order,
                     revision=selected,
                 )
+        self._validate_recent_window(window, selected, order)
+        return window
+
+    @classmethod
+    def _validate_recent_window(
+        cls,
+        window: CatalogRecentWindow,
+        selected: CatalogRevision,
+        order: CatalogRecentOrder,
+    ) -> None:
         if window.revision != selected:
             raise CatalogIntegrityError(
                 "recent window disagrees with its pinned revision"
@@ -600,8 +749,7 @@ class CatalogService:
                 "recent window is not an acquisition-only top-128 set"
             )
         for publication in window.publications:
-            self._validate_publication(publication)
-        return window
+            cls._validate_publication(publication)
 
     def presentation(
         self,

@@ -25,6 +25,7 @@ from h2hdb import (
     CatalogRevision,
     CatalogRevisionNotFoundError,
     CatalogSubject,
+    CatalogTagBundle,
     CatalogTagCursor,
     CatalogTagFilter,
     CatalogTagPage,
@@ -92,6 +93,9 @@ class FakeCatalog:
         self.discovery_corruption: str | None = None
         self.recent_corruption: str | None = None
         self.tag_calls: list[tuple[str, int, CatalogRevision | int | None]] = []
+        self.tag_bundle_calls: list[
+            tuple[str, CatalogTagCursor | None, int, CatalogRevision | int | None]
+        ] = []
 
     def add_revision(
         self,
@@ -413,6 +417,7 @@ class FakeCatalog:
         limit: int = 50,
         revision: CatalogRevision | int | None = None,
     ) -> CatalogTagPage:
+        assert 1 <= limit <= 128
         selected = self._revision_at(revision)
         self.tag_calls.append((namespace, limit, revision))
         latest: dict[str, int] = {}
@@ -459,18 +464,27 @@ class FakeCatalog:
             limit=limit,
         )
 
-    def list_tag_publications(
+    def list_tag_values_with_publications(
         self,
         *,
-        subject: CatalogTagFilter,
-        after: CatalogDiscoveryCursor | None = None,
+        namespace: str,
+        after: CatalogTagCursor | None = None,
         limit: int = 50,
         revision: CatalogRevision | int | None = None,
-    ) -> CatalogDiscoveryPage:
-        selected = self._revision_at(revision)
-        self.tag_calls.append((subject.namespace, limit, revision))
-        digest = sha256(f"tag-browse:{subject!r}".encode()).hexdigest()
+    ) -> CatalogTagBundle:
+        assert 1 <= limit <= 128
+        self.tag_bundle_calls.append((namespace, after, limit, revision))
+        page = self.list_tag_values(
+            namespace=namespace, after=after, limit=limit, revision=revision
+        )
         publications = tuple(
+            self._tag_order(CatalogTagFilter(namespace=namespace, value=value.value))[0]
+            for value in page.values
+        )
+        return CatalogTagBundle(page=page, publications=publications)
+
+    def _tag_order(self, subject: CatalogTagFilter) -> tuple[CatalogPublication, ...]:
+        return tuple(
             sorted(
                 (
                     publication
@@ -488,6 +502,20 @@ class FakeCatalog:
                 ),
             )
         )
+
+    def list_tag_publications(
+        self,
+        *,
+        subject: CatalogTagFilter,
+        after: CatalogDiscoveryCursor | None = None,
+        limit: int = 50,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogDiscoveryPage:
+        assert 1 <= limit <= 128
+        selected = self._revision_at(revision)
+        self.tag_calls.append((subject.namespace, limit, revision))
+        digest = sha256(f"tag-browse:{subject!r}".encode()).hexdigest()
+        publications = self._tag_order(subject)
         start = 0
         if after is not None:
             if (

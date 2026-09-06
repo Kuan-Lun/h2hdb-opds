@@ -212,10 +212,21 @@ path 均不得呼叫 `migrate()`。
   `other:uncensored`。作品順序由 core 的 uploaded time 降序、casefolded UTF-8
   sort title 升序及 immutable identity 決定。新入口兩層均提供 bounded cursor
   pages、first/next 與 revision recovery，預設 50、最高 128；不得載入全量再排序。
-  core `list_tag_values`/`list_tag_publications` 是唯一排序與分頁 authority。
+  core `list_tag_values_with_publications`/`list_tag_publications` 是唯一排序與分頁
+  authority；前者一次取得當頁 tag 與各 tag 排序第一本 publication，不得逐 tag
+  呼叫 publication lookup 或重新掃描清單。
   browse 使用 `CatalogTagFilter` 的來源 0..65536 UTF-8 bytes value bounds，
   不沿用 search 的 `CatalogSubjectFilter` 1..1024 bounds；空 tag 與省略 tag
   必須區分，顯示 placeholder 時 href 仍保留 exact 空值。
+- 首頁八個入口及 artist/group tag 子入口使用目標排序第一本 CBZ 的既有 320px
+  thumbnail。Artists/Groups 首頁入口沿第一個 tag 取其第一本作品；空入口或首本
+  無封面時省略，不得跳到後面的作品。Root 的固定數量 preview reads 共用 selected
+  revision 與 publication lock，回傳前重新確認 head；目錄頁以一個 bounded core
+  `CatalogTagBundle` 取得逐項對齊的 publications。OPDS 1.2 使用標準
+  `http://opds-spec.org/image/thumbnail` link；OPDS 2 使用 Readium Link `alternate`
+  內的 `rel="icon"` 社群慣例，不宣稱 OPDS 2 已標準化導覽圖片或所有 reader 均支援。
+  兩者重用 canonical media URL、selected revision 與既有 sealed thumbnail metadata，
+  不新增圖像生成、request-time resize 或 compatibility fallback。
 - OPDS 1.2 search 使用 `q` 與 OpenSearch `{searchTerms}`；OPDS 2 依規格只使用
   `query`，舊 `q` 必須回 422，不保留 alias。`tag` 與 `tag_namespace`、
   `contributor` 與 `role` 分別必須成對。Facet filter bytes 必須 exact
@@ -315,7 +326,7 @@ path 均不得呼叫 `migrate()`。
   `secrets.compare_digest`。
 - 兩版 discovery/facets/recent 只能使用 core pinned
   `discover_publications`、`list_publication_facets` 與
-  `list_recent_publications`；tag browse 使用 `list_tag_values` 與
+  `list_recent_publications`；tag browse 使用 `list_tag_values_with_publications` 與
   `list_tag_publications`。page/thumbnail 只能使用 core presentation APIs。
   每個 serialized publication 必須有 acquisition link；不得使用 legacy listing
   API、`OFFSET`、逐頁 `COUNT(*)`、OPDS-side sort、request-time ZIP parsing/image

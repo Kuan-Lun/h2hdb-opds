@@ -441,7 +441,9 @@ async def test_browse_fails_closed_when_reader_returns_wrong_page_family(
             limit=50,
         )
 
-    method = "list_tag_values" if directory else "list_tag_publications"
+    method = (
+        "list_tag_values_with_publications" if directory else "list_tag_publications"
+    )
     monkeypatch.setattr(catalog, method, wrong_page)
     category = "artists" if directory else "uncensored"
     async with app_client(create_app(opds_config, catalog)) as client:
@@ -457,7 +459,7 @@ async def test_browse_fails_closed_when_reader_returns_wrong_page_family(
     [
         ("get_catalog_revision", "artists"),
         ("get_catalog_revision", "uncensored"),
-        ("list_tag_values", "artists"),
+        ("list_tag_values_with_publications", "artists"),
         ("list_tag_publications", "uncensored"),
     ],
 )

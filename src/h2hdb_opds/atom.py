@@ -41,7 +41,7 @@ from h2hdb import (
 )
 
 from .browse import BROWSE_CATEGORIES, BrowseTarget, browse_url
-from .catalog_service import BrowsePageSelection
+from .catalog_service import BrowsePageSelection, NavigationSelection
 from .config import OPDSConfig
 from .cursor import encode_discovery_cursor, encode_facet_cursor
 from .discovery import (
@@ -420,11 +420,35 @@ def _navigation_entry(
     return entry
 
 
+def _navigation_thumbnail(
+    entry: ElementTree.Element,
+    request: Request,
+    config: OPDSConfig,
+    publication: CatalogPublication | None,
+    revision: int,
+) -> None:
+    if publication is None or publication.thumbnail is None:
+        return
+    _image_link(
+        entry,
+        publication.thumbnail,
+        relation=OPDS_THUMBNAIL_REL,
+        href=_media_url(
+            request,
+            config,
+            "publication_thumbnail",
+            publication.publication_id,
+            revision,
+        ),
+    )
+
+
 def navigation_feed_document(
     request: Request,
     config: OPDSConfig,
-    revision: CatalogRevision,
+    selection: NavigationSelection,
 ) -> bytes:
+    revision = selection.revision
     selected_revision = revision.revision
     feed_url = external_url(request, config, "opds12_catalog")
     feed = _feed(
@@ -446,8 +470,8 @@ def navigation_feed_document(
         media_type=OPDS12_NAVIGATION_MEDIA_TYPE,
     )
     _search_description_link(feed, request, config, selected_revision)
-    feed.append(
-        _navigation_entry(
+    entries = {
+        "all": _navigation_entry(
             title="All Publications",
             identifier="urn:h2hdb:navigation:all-publications",
             description="Every downloadable publication in the current catalog.",
@@ -458,10 +482,8 @@ def navigation_feed_document(
                 "opds12_publications",
                 selected_revision,
             ),
-        )
-    )
-    feed.append(
-        _navigation_entry(
+        ),
+        "recently-uploaded": _navigation_entry(
             title="Recently Uploaded",
             identifier="urn:h2hdb:navigation:recently-uploaded",
             description="Up to 128 publications with the latest upload times.",
@@ -473,10 +495,8 @@ def navigation_feed_document(
                 selected_revision,
             ),
             additional_relation=OPDS_SORT_NEW_REL,
-        )
-    )
-    feed.append(
-        _navigation_entry(
+        ),
+        "recently-downloaded": _navigation_entry(
             title="Recently Downloaded",
             identifier="urn:h2hdb:navigation:recently-downloaded",
             description="Up to 128 publications with the latest download times.",
@@ -487,8 +507,8 @@ def navigation_feed_document(
                 "opds12_recent_downloaded",
                 selected_revision,
             ),
-        )
-    )
+        ),
+    }
     for category, title in BROWSE_CATEGORIES.items():
         target = BrowseTarget(category)
         href = browse_url(
@@ -498,20 +518,27 @@ def navigation_feed_document(
             endpoint="opds12_tag_browse",
             revision=selected_revision,
         )
-        feed.append(
-            _navigation_entry(
-                title=title,
-                identifier=href,
-                description=f"Browse {title} by latest upload time.",
-                updated=revision.published_at,
-                href=href,
-                media_type=(
-                    OPDS12_NAVIGATION_MEDIA_TYPE
-                    if target.subject is None
-                    else OPDS12_ACQUISITION_MEDIA_TYPE
-                ),
-            )
+        entries[category] = _navigation_entry(
+            title=title,
+            identifier=href,
+            description=f"Browse {title} by latest upload time.",
+            updated=revision.published_at,
+            href=href,
+            media_type=(
+                OPDS12_NAVIGATION_MEDIA_TYPE
+                if target.subject is None
+                else OPDS12_ACQUISITION_MEDIA_TYPE
+            ),
         )
+    for category, entry in entries.items():
+        _navigation_thumbnail(
+            entry,
+            request,
+            config,
+            selection.publications.get(category),
+            selected_revision,
+        )
+        feed.append(entry)
     return _serialized(feed)
 
 
@@ -572,7 +599,9 @@ def browse_feed_document(
         feed, "itemsPerPage", str(page.limit), namespace=OPEN_SEARCH_NAMESPACE
     )
     if isinstance(page, CatalogTagPage):
-        for value in page.values:
+        for value, publication in zip(
+            page.values, selection.directory_publications, strict=True
+        ):
             href = browse_url(
                 request,
                 config,
@@ -581,15 +610,15 @@ def browse_feed_document(
                 revision=revision,
                 limit=page.limit,
             )
-            feed.append(
-                _navigation_entry(
-                    title=value.value or "(empty tag)",
-                    identifier=href,
-                    description=f"Browse publications tagged {value.value}.",
-                    updated=page.revision.published_at,
-                    href=href,
-                )
+            entry = _navigation_entry(
+                title=value.value or "(empty tag)",
+                identifier=href,
+                description=f"Browse publications tagged {value.value}.",
+                updated=page.revision.published_at,
+                href=href,
             )
+            _navigation_thumbnail(entry, request, config, publication, revision)
+            feed.append(entry)
     else:
         for publication in page.publications:
             feed.append(

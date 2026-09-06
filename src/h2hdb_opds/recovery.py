@@ -75,10 +75,13 @@ def recover_catalog_revision(
         try:
             current = catalog.revision(None)
         except CatalogReadError as failure:
-            if browse_target is None:
+            if browse_target is None and endpoint not in {
+                "navigation",
+                "opds12_catalog",
+            }:
                 raise
             raise CatalogIntegrityError(
-                "tag browse could not validate the refreshed catalog head"
+                "navigation could not validate the refreshed catalog head"
             ) from failure
         if revision >= current.revision:
             raise

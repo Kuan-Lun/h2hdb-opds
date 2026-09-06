@@ -64,7 +64,7 @@ def create_opds2_router(
         with recover_catalog_revision(
             request, config, catalog, endpoint="navigation", revision=revision
         ):
-            selected = catalog.revision(revision)
+            selected = catalog.navigation(revision)
         return JSONResponse(
             navigation_document(request, config, selected),
             media_type=OPDS_FEED_MEDIA_TYPE,

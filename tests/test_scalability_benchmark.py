@@ -4,11 +4,15 @@ from typing import cast
 
 import pytest
 from h2hdb import (
+    CatalogCursorError,
     CatalogDiscoveryCursor,
     CatalogDiscoveryQuery,
     CatalogFacetCursor,
     CatalogFacetKind,
     CatalogReader,
+    CatalogRevisionNotFoundError,
+    CatalogTagCursor,
+    CatalogTagFilter,
 )
 
 from benchmarks.opds_scalability import (
@@ -117,6 +121,57 @@ def test_synthetic_reader_rejects_every_unbounded_page_request() -> None:
         reader.list_publication_facets(
             facet=CatalogFacetKind.LANGUAGE,
             limit=129,
+        )
+    with pytest.raises(ValueError, match="limit must be in"):
+        reader.list_tag_values(namespace="artist", limit=129)
+    with pytest.raises(ValueError, match="limit must be in"):
+        reader.list_tag_values_with_publications(namespace="artist", limit=129)
+    with pytest.raises(ValueError, match="limit must be in"):
+        reader.list_tag_publications(
+            subject=CatalogTagFilter("artist", "missing"), limit=129
+        )
+
+
+def test_synthetic_reader_has_no_exact_source_tag_workload() -> None:
+    fixture = build_synthetic_fixture(SMOKE_PROFILE)
+    assert all(
+        subject.scheme != "tag"
+        for publication in fixture.publications
+        for subject in publication.subjects
+    )
+    reader: CatalogReader = SyntheticCatalogReader(fixture)
+    revision = reader.get_catalog_revision()
+    for namespace in ("artist", "group", "other"):
+        bundle = reader.list_tag_values_with_publications(
+            namespace=namespace, limit=1, revision=revision
+        )
+        assert bundle.page.revision == revision
+        assert bundle.page.namespace == namespace
+        assert bundle.page.limit == 1
+        assert bundle.page.values == ()
+        assert bundle.page.next_cursor is None
+        assert bundle.publications == ()
+        page = reader.list_tag_publications(
+            subject=CatalogTagFilter(namespace, "missing"), limit=1, revision=revision
+        )
+        assert page.revision == revision
+        assert page.limit == 1
+        assert page.publications == ()
+        assert page.next_cursor is None
+
+    with pytest.raises(CatalogCursorError, match="no cursor boundary"):
+        reader.list_tag_values_with_publications(
+            namespace="artist",
+            after=CatalogTagCursor(
+                revision=revision.revision,
+                namespace="artist",
+                position=0,
+                value_sha256="0" * 64,
+            ),
+        )
+    with pytest.raises(CatalogRevisionNotFoundError):
+        reader.list_tag_values_with_publications(
+            namespace="artist", revision=revision.revision + 1
         )
 
 

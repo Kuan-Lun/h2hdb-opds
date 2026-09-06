@@ -54,6 +54,7 @@ from h2hdb import (
     CatalogRevision,
     CatalogRevisionNotFoundError,
     CatalogSubject,
+    CatalogTagBundle,
     CatalogTagCursor,
     CatalogTagFilter,
     CatalogTagPage,
@@ -1259,7 +1260,34 @@ class SyntheticCatalogReader:
         limit: int = 50,
         revision: CatalogRevision | int | None = None,
     ) -> CatalogTagPage:
-        raise NotImplementedError("synthetic benchmark does not measure tag browsing")
+        limit = self._bounded_limit(limit)
+        selected_revision = self._revision_at(revision)
+        if after is not None:
+            raise CatalogCursorError("synthetic tag directory has no cursor boundary")
+        # This fixture uses benchmark subject terms, not exact source tags. Its
+        # empty tag surfaces do not measure tag directory or thumbnail workloads.
+        return CatalogTagPage(
+            revision=selected_revision,
+            namespace=namespace,
+            values=(),
+            next_cursor=None,
+            limit=limit,
+        )
+
+    def list_tag_values_with_publications(
+        self,
+        *,
+        namespace: str,
+        after: CatalogTagCursor | None = None,
+        limit: int = 50,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogTagBundle:
+        return CatalogTagBundle(
+            page=self.list_tag_values(
+                namespace=namespace, after=after, limit=limit, revision=revision
+            ),
+            publications=(),
+        )
 
     def list_tag_publications(
         self,
@@ -1269,7 +1297,19 @@ class SyntheticCatalogReader:
         limit: int = 50,
         revision: CatalogRevision | int | None = None,
     ) -> CatalogDiscoveryPage:
-        raise NotImplementedError("synthetic benchmark does not measure tag browsing")
+        limit = self._bounded_limit(limit)
+        selected_revision = self._revision_at(revision)
+        if after is not None:
+            raise CatalogCursorError(
+                "synthetic tag publications have no cursor boundary"
+            )
+        return CatalogDiscoveryPage(
+            revision=selected_revision,
+            publications=(),
+            next_cursor=None,
+            limit=limit,
+            total=None,
+        )
 
     def list_recent_publications(
         self,

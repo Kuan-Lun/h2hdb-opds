@@ -85,7 +85,7 @@ def create_opds12_router(
         with recover_catalog_revision(
             request, config, catalog, endpoint="opds12_catalog", revision=revision
         ):
-            selected = catalog.revision(revision)
+            selected = catalog.navigation(revision)
         return atom_response(
             request,
             document=navigation_feed_document(request, config, selected),

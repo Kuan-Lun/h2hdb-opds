@@ -23,13 +23,12 @@ from h2hdb import (
     CatalogImageResource,
     CatalogPublication,
     CatalogRecentWindow,
-    CatalogRevision,
     CatalogTagPage,
 )
 
 from .auth import AUTHENTICATION_DOCUMENT_REL, AUTHENTICATION_MEDIA_TYPE
 from .browse import BROWSE_CATEGORIES, BrowseTarget, browse_url
-from .catalog_service import BrowsePageSelection
+from .catalog_service import BrowsePageSelection, NavigationSelection
 from .config import OPDSConfig
 from .cursor import encode_discovery_cursor, encode_facet_cursor
 from .discovery import (
@@ -115,8 +114,9 @@ def _search_link(
 def navigation_document(
     request: Request,
     config: OPDSConfig,
-    revision: CatalogRevision,
+    selection: NavigationSelection,
 ) -> dict[str, object]:
+    revision = selection.revision
     selected_revision = revision.revision
     self_url = external_url(request, config, "navigation")
     links = [
@@ -134,6 +134,9 @@ def navigation_document(
         "type": OPDS_FEED_MEDIA_TYPE,
         "rel": "subsection",
         "properties": {"numberOfItems": count},
+        **_navigation_image(
+            request, config, selection.publications.get("all"), selected_revision
+        ),
     }
     recently_uploaded = {
         "title": "Recently Uploaded",
@@ -144,6 +147,12 @@ def navigation_document(
         "type": OPDS_FEED_MEDIA_TYPE,
         "rel": OPDS_SORT_NEW_REL,
         "properties": {"numberOfItems": min(128, count)},
+        **_navigation_image(
+            request,
+            config,
+            selection.publications.get("recently-uploaded"),
+            selected_revision,
+        ),
     }
     recently_downloaded = {
         "title": "Recently Downloaded",
@@ -154,6 +163,12 @@ def navigation_document(
         "type": OPDS_FEED_MEDIA_TYPE,
         "rel": "subsection",
         "properties": {"numberOfItems": min(128, count)},
+        **_navigation_image(
+            request,
+            config,
+            selection.publications.get("recently-downloaded"),
+            selected_revision,
+        ),
     }
     return {
         "metadata": {
@@ -179,6 +194,12 @@ def navigation_document(
                             ),
                             "type": OPDS_FEED_MEDIA_TYPE,
                             "rel": "subsection",
+                            **_navigation_image(
+                                request,
+                                config,
+                                selection.publications.get(category),
+                                selected_revision,
+                            ),
                         }
                         for category, title in BROWSE_CATEGORIES.items()
                     ),
@@ -241,6 +262,31 @@ def _image_document(
         "width": resource.width,
         "height": resource.height,
         "size": resource.extent.length,
+    }
+
+
+def _navigation_image(
+    request: Request,
+    config: OPDSConfig,
+    publication: CatalogPublication | None,
+    revision: int,
+) -> dict[str, object]:
+    if publication is None or publication.thumbnail is None:
+        return {}
+    # OPDS 2 has no navigation images collection. The alternate icon convention
+    # uses the Readium Link model; displaying it remains a client capability.
+    return {
+        "alternate": [
+            _image_document(
+                request,
+                config,
+                publication.publication_id,
+                revision,
+                publication.thumbnail,
+                endpoint="publication_thumbnail",
+                relation="icon",
+            )
+        ]
     }
 
 
@@ -777,8 +823,11 @@ def browse_document(
                 ),
                 "type": OPDS_FEED_MEDIA_TYPE,
                 "rel": "subsection",
+                **_navigation_image(request, config, publication, revision),
             }
-            for value in page.values
+            for value, publication in zip(
+                page.values, selection.directory_publications, strict=True
+            )
         ] or _empty_navigation(request, config, revision)
     elif page.publications:
         document["publications"] = [

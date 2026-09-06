@@ -42,6 +42,15 @@ OPDS 2.0 提供封面、縮圖及 CBZ 下載。實際按鈕名稱與篩選介面
 這五個新入口的作品均依上傳時間由新到舊排列，同時間依不分大小寫的作品標題
 排序，標題也相同時由固定作品識別順序決定。
 
+首頁八個入口與作者／團隊子入口使用目標清單排序第一本 CBZ 的封面縮圖。
+首頁的 `Artists`／`Groups` 使用第一個作者／團隊內第一本作品的縮圖。
+空入口或第一本作品沒有封面時，省略縮圖；不會改取後面的作品。
+縮圖重用 ingest 預先產生的 320px 圖片，作者／團隊頁一次批次取得當頁資料。
+OPDS 1.2 使用標準 artwork thumbnail link；OPDS 2 採用
+[`alternate`／`icon` 社群慣例](https://github.com/UstadMobile/RESPECT-Consumer-App-Integration-Guide#appendix-a-sample-opds-catalogs)。
+[OPDS 2 尚未統一定義導覽圖片](https://github.com/opds-community/drafts/issues/64#issuecomment-1691310279)，
+實際是否顯示縮圖取決於閱讀器。
+
 作者／團隊名稱清單與作品清單都可翻頁，預設每頁 50 筆、最多 128 筆；
 透過 `next` 取得下一頁，不會一次展開所有名稱或作品。
 兩版 HTTP 路徑為 `/opds/v1.2/browse/{category}` 與 `/opds/v2/browse/{category}`，
@@ -231,7 +240,7 @@ HTTP 的 `tag` 與 `tag_namespace` 成對參數繼續支援；移除的是搜尋
 ### 準備環境與書庫
 
 需要 Python 3.14 以上版本，以及支援 POSIX 檔案鎖的環境，例如 Linux 或 macOS。
-目前使用的 H2HDB 相容版本範圍為 `>=0.34.0,<0.35.0`。
+目前使用的 H2HDB 相容版本範圍為 `>=0.35.0,<0.36.0`。
 啟動前，請先由 H2HDB 與 ingest 完成資料庫初始化及書庫發佈，準備：
 
 - 符合該版本 epoch 3／schema version 5、已標記為 `READY` 的資料庫。
