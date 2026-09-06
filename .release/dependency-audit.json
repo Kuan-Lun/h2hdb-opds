@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-06T12:19:43+00:00",
+  "checked_at": "2026-09-06T14:25:06+00:00",
   "manifest_sha256": "338a954842c598c8083054098edbc96fea0c20528dc7e7090e8a8deee0891a25",
   "node": [
     {
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.20.0",
+  "project_version": "0.20.1",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -44,8 +44,8 @@
     {
       "declared": "h2hdb>=0.35.0,<0.36.0",
       "group": "runtime",
-      "latest": "0.34.0",
-      "latest_satisfies": false,
+      "latest": "0.35.0",
+      "latest_satisfies": true,
       "name": "h2hdb",
       "python_3_14": true,
       "url": "https://pypi.org/project/h2hdb/"
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed every direct build, runtime, optional development and Node registry candidate. External dependency versions and supported bounds are unchanged from the preceding audit. Registry h2hdb 0.34.0 lacks the new bounded tag-publication bundle API; this task intentionally requires h2hdb >=0.35.0,<0.36.0 and validates the explicitly supplied local core 0.35.0. Injected CatalogReader implementations must add that method; schema remains 5. Both protocol schema corpora and targeted navigation, paging, first-publication selection, zero-cover, canonical JPEG retrieval, exact tag membership, timestamp and revision-recovery tests passed. The complete bounded merge gate separately validates the final tree and SQLite integration.",
+    "note": "Reviewed all 15 Python and 3 Node dependency records against the previous receipt. External dependency candidates are unchanged. The h2hdb registry candidate is now 0.35.0 and satisfies the existing >=0.35.0,<0.36.0 bound; its generic tag browsing and preview APIs are already used and validated by this repository. No dependency manifest changes are needed. All 441 targeted browse, thumbnail, catalog, and revision recovery tests passed. The exact-tree release gate separately validates the final 0.20.1 candidate.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
