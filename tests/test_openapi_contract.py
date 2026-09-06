@@ -17,6 +17,7 @@ _OPDS12_OPERATIONS = (
     ("/publications", "publications", "opds_v1_2_publications"),
     ("/search", "search", "opds_v1_2_search"),
     ("/facets/{facet}", "facet_values", "opds_v1_2_facets__facet_"),
+    ("/browse/{category}", "tag_browse", "opds_v1_2_browse__category_"),
     ("/opensearch.xml", "opensearch", "opds_v1_2_opensearch_xml"),
     ("/recent/uploaded", "recent_uploaded", "opds_v1_2_recent_uploaded"),
     ("/recent/downloaded", "recent_downloaded", "opds_v1_2_recent_downloaded"),

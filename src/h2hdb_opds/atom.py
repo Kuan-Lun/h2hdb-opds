@@ -11,6 +11,7 @@ __all__ = [
     "OPEN_SEARCH_NAMESPACE",
     "PSE_NAMESPACE",
     "acquisition_feed_document",
+    "browse_feed_document",
     "facet_navigation_feed_document",
     "navigation_feed_document",
     "opensearch_description_document",
@@ -36,8 +37,11 @@ from h2hdb import (
     CatalogPublication,
     CatalogRecentWindow,
     CatalogRevision,
+    CatalogTagPage,
 )
 
+from .browse import BROWSE_CATEGORIES, BrowseTarget, browse_url
+from .catalog_service import BrowsePageSelection
 from .config import OPDSConfig
 from .cursor import encode_discovery_cursor, encode_facet_cursor
 from .discovery import (
@@ -391,6 +395,7 @@ def _navigation_entry(
     updated: datetime,
     href: str,
     additional_relation: str | None = None,
+    media_type: str = OPDS12_ACQUISITION_MEDIA_TYPE,
 ) -> ElementTree.Element:
     entry = ElementTree.Element(_atom("entry"))
     _text_element(entry, "title", title)
@@ -401,7 +406,7 @@ def _navigation_entry(
         entry,
         relation="subsection",
         href=href,
-        media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
+        media_type=media_type,
         title=title,
     )
     if additional_relation is not None:
@@ -409,7 +414,7 @@ def _navigation_entry(
             entry,
             relation=additional_relation,
             href=href,
-            media_type=OPDS12_ACQUISITION_MEDIA_TYPE,
+            media_type=media_type,
             title=title,
         )
     return entry
@@ -484,6 +489,118 @@ def navigation_feed_document(
             ),
         )
     )
+    for category, title in BROWSE_CATEGORIES.items():
+        target = BrowseTarget(category)
+        href = browse_url(
+            request,
+            config,
+            target,
+            endpoint="opds12_tag_browse",
+            revision=selected_revision,
+        )
+        feed.append(
+            _navigation_entry(
+                title=title,
+                identifier=href,
+                description=f"Browse {title} by latest upload time.",
+                updated=revision.published_at,
+                href=href,
+                media_type=(
+                    OPDS12_NAVIGATION_MEDIA_TYPE
+                    if target.subject is None
+                    else OPDS12_ACQUISITION_MEDIA_TYPE
+                ),
+            )
+        )
+    return _serialized(feed)
+
+
+def browse_feed_document(
+    request: Request,
+    config: OPDSConfig,
+    selection: BrowsePageSelection,
+) -> bytes:
+    page = selection.page
+    revision = page.revision.revision
+    directory = isinstance(page, CatalogTagPage)
+    media_type = (
+        OPDS12_NAVIGATION_MEDIA_TYPE if directory else OPDS12_ACQUISITION_MEDIA_TYPE
+    )
+    feed = _feed(
+        identifier=browse_url(
+            request, config, selection.target, endpoint="opds12_tag_browse"
+        ),
+        title=selection.target.title,
+        updated=page.revision.published_at,
+        author=config.title,
+    )
+    cursors = [("self", selection.cursor), ("first", None)]
+    if selection.next_cursor is not None:
+        cursors.append(("next", selection.next_cursor))
+    for relation, cursor in cursors:
+        _link(
+            feed,
+            relation=relation,
+            href=browse_url(
+                request,
+                config,
+                selection.target,
+                endpoint="opds12_tag_browse",
+                revision=revision,
+                limit=page.limit,
+                cursor=cursor,
+            ),
+            media_type=media_type,
+        )
+    root_url = external_url(request, config, "opds12_catalog")
+    for relation in ("start", "up"):
+        href = root_url
+        if relation == "up" and selection.target.tag is not None:
+            href = browse_url(
+                request,
+                config,
+                BrowseTarget(selection.target.category),
+                endpoint="opds12_tag_browse",
+                revision=revision,
+                limit=page.limit,
+            )
+        _link(
+            feed, relation=relation, href=href, media_type=OPDS12_NAVIGATION_MEDIA_TYPE
+        )
+    _search_description_link(feed, request, config, revision)
+    _text_element(
+        feed, "itemsPerPage", str(page.limit), namespace=OPEN_SEARCH_NAMESPACE
+    )
+    if isinstance(page, CatalogTagPage):
+        for value in page.values:
+            href = browse_url(
+                request,
+                config,
+                BrowseTarget(selection.target.category, value.value),
+                endpoint="opds12_tag_browse",
+                revision=revision,
+                limit=page.limit,
+            )
+            feed.append(
+                _navigation_entry(
+                    title=value.value or "(empty tag)",
+                    identifier=href,
+                    description=f"Browse publications tagged {value.value}.",
+                    updated=page.revision.published_at,
+                    href=href,
+                )
+            )
+    else:
+        for publication in page.publications:
+            feed.append(
+                _publication_entry(
+                    publication,
+                    request=request,
+                    config=config,
+                    revision=revision,
+                    acquisition_endpoint="opds12_acquire_artifact",
+                )
+            )
     return _serialized(feed)
 
 

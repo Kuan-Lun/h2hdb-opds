@@ -89,13 +89,20 @@ async def test_root_has_all_and_both_recent_navigation_entries(
     async with app_client(app) as client:
         response = await client.get("/opds/v1.2/catalog")
         root = _xml(response, OPDS12_NAVIGATION_MEDIA_TYPE)
-        assert _entry_titles(root) == list(expected_navigation)
+        assert _entry_titles(root) == [
+            *expected_navigation,
+            "Artists",
+            "Groups",
+            "Soushuuhen",
+            "Multi-work Series",
+            "Uncensored",
+        ]
         entries = root.findall("atom:entry", _NAMESPACES)
         assert len(
             {entry.findtext("atom:id", namespaces=_NAMESPACES) for entry in entries}
         ) == len(entries)
         for entry, (title, (path, expected_titles)) in zip(
-            entries, expected_navigation.items(), strict=True
+            entries[:3], expected_navigation.items(), strict=True
         ):
             links = entry.findall("atom:link", _NAMESPACES)
             subsections = [link for link in links if link.attrib["rel"] == "subsection"]

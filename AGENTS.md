@@ -196,14 +196,26 @@ path 均不得呼叫 `migrate()`。
   version-neutral page/thumbnail routes；`publication.py` 負責 URI identifier 與
   acquisition relation policy。
 - OPDS 1.2 與 2 root 必須同樣提供 `All Publications`、
-  `Recently Uploaded`、`Recently Downloaded` 三個 navigation item。OPDS 1.2
-  直接列出三個 entry；OPDS 2 以 `Browse` 與 `Recent Activity` 兩個 `groups`
+  `Recently Uploaded`、`Recently Downloaded`、`Artists`、`Groups`、`Soushuuhen`、
+  `Multi-work Series` 與 `Uncensored` 八個 navigation item。OPDS 1.2
+  直接列出八個 entry；OPDS 2 以 `Browse` 與 `Recent Activity` 兩個 `groups`
   分組，且不得另外重複頂層 `navigation`。All 與 search 使用 core discovery
   seek cursor，page limit 為 1..128；recent 使用 core
   authoritative order 的固定完整 top-128 window，不接受 limit、cursor 或
   offset，也不產生 next/first/crawlable。OPDS 1.2 feed/entry 必須滿足 Atom 與
   OPDS RNC；OPDS 2 feed 使用 `application/opds+json`，standalone publication
   使用 `application/opds-publication+json`。
+- `/browse/{category}` 的 artists/groups 目錄只讀取 exact `artist`/`group`
+  subject namespace；不能使用 contributor roles 代替。目錄依每個 tag 所屬作品的
+  latest uploaded time 降序、exact UTF-8 tag name 升序排列。`tag` query 選擇 exact
+  子入口，另外三個入口分別選擇 `other:soushuuhen`、`other:multi-work series` 與
+  `other:uncensored`。作品順序由 core 的 uploaded time 降序、casefolded UTF-8
+  sort title 升序及 immutable identity 決定。新入口兩層均提供 bounded cursor
+  pages、first/next 與 revision recovery，預設 50、最高 128；不得載入全量再排序。
+  core `list_tag_values`/`list_tag_publications` 是唯一排序與分頁 authority。
+  browse 使用 `CatalogTagFilter` 的來源 0..65536 UTF-8 bytes value bounds，
+  不沿用 search 的 `CatalogSubjectFilter` 1..1024 bounds；空 tag 與省略 tag
+  必須區分，顯示 placeholder 時 href 仍保留 exact 空值。
 - OPDS 1.2 search 使用 `q` 與 OpenSearch `{searchTerms}`；OPDS 2 依規格只使用
   `query`，舊 `q` 必須回 422，不保留 alias。`tag` 與 `tag_namespace`、
   `contributor` 與 `role` 分別必須成對。Facet filter bytes 必須 exact
@@ -303,7 +315,8 @@ path 均不得呼叫 `migrate()`。
   `secrets.compare_digest`。
 - 兩版 discovery/facets/recent 只能使用 core pinned
   `discover_publications`、`list_publication_facets` 與
-  `list_recent_publications`；page/thumbnail 只能使用 core presentation APIs。
+  `list_recent_publications`；tag browse 使用 `list_tag_values` 與
+  `list_tag_publications`。page/thumbnail 只能使用 core presentation APIs。
   每個 serialized publication 必須有 acquisition link；不得使用 legacy listing
   API、`OFFSET`、逐頁 `COUNT(*)`、OPDS-side sort、request-time ZIP parsing/image
   resize 或 protocol-specific durable pagination state。

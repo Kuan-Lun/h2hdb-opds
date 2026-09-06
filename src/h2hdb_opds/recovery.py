@@ -7,9 +7,10 @@ from urllib.parse import urlencode
 from fastapi import Request
 from h2hdb import CatalogDiscoveryQuery, CatalogFacetKind
 
+from .browse import BrowseTarget, browse_url
 from .catalog_service import CatalogService, RevisionUnavailable
 from .config import OPDSConfig
-from .cursor import decode_discovery_cursor, decode_facet_cursor
+from .cursor import decode_discovery_cursor, decode_facet_cursor, decode_tag_cursor
 from .discovery import discovery_query_parameters
 from .urls import external_url
 
@@ -21,11 +22,20 @@ class CatalogRefreshRequired(Exception):
 
 
 def _cursor_matches_revision(
-    cursor: str | None, revision: int, facet: CatalogFacetKind | None
+    cursor: str | None,
+    revision: int,
+    facet: CatalogFacetKind | None,
+    browse_target: BrowseTarget | None,
 ) -> bool:
     if cursor is None:
         return True
     try:
+        if browse_target is not None and browse_target.subject is None:
+            decoded_tag = decode_tag_cursor(cursor)
+            return (
+                decoded_tag.revision == revision
+                and decoded_tag.namespace == browse_target.namespace
+            )
         if facet is not None:
             decoded_facet = decode_facet_cursor(cursor)
             return decoded_facet.revision == revision and decoded_facet.facet is facet
@@ -48,6 +58,7 @@ def recover_catalog_revision(
     cursor: str | None = None,
     limit: int | None = None,
     facet: CatalogFacetKind | None = None,
+    browse_target: BrowseTarget | None = None,
 ) -> Iterator[None]:
     """Restart an explicitly stale navigation request after route validation."""
     try:
@@ -58,12 +69,19 @@ def recover_catalog_revision(
             or revision <= 0
             or error.revision != revision
             or (limit is not None and limit > config.maximum_page_size)
-            or not _cursor_matches_revision(cursor, revision, facet)
+            or not _cursor_matches_revision(cursor, revision, facet, browse_target)
         ):
             raise
         current = catalog.revision(None)
         if revision >= current.revision:
             raise
+
+        if browse_target is not None:
+            raise CatalogRefreshRequired(
+                browse_url(
+                    request, config, browse_target, endpoint=endpoint, limit=limit
+                )
+            ) from error
 
         parameters: dict[str, str | int] = {}
         if query is not None:

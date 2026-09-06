@@ -130,6 +130,7 @@ async def test_empty_acquisition_catalogs_match_both_official_schemas(
         entry["properties"]["numberOfItems"]
         for group in root_document["groups"]
         for entry in group["navigation"]
+        if "properties" in entry
     ] == [0, 0, 0]
 
 

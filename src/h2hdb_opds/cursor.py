@@ -1,8 +1,10 @@
 __all__ = [
     "decode_discovery_cursor",
     "decode_facet_cursor",
+    "decode_tag_cursor",
     "encode_discovery_cursor",
     "encode_facet_cursor",
+    "encode_tag_cursor",
 ]
 
 import base64
@@ -11,7 +13,12 @@ import json
 import re
 from typing import cast
 
-from h2hdb import CatalogDiscoveryCursor, CatalogFacetCursor, CatalogFacetKind
+from h2hdb import (
+    CatalogDiscoveryCursor,
+    CatalogFacetCursor,
+    CatalogFacetKind,
+    CatalogTagCursor,
+)
 
 _CURSOR_FORMAT = 2
 _INT63_MAX = (1 << 63) - 1
@@ -140,5 +147,36 @@ def decode_facet_cursor(value: str) -> CatalogFacetCursor:
     except (TypeError, ValueError) as error:
         raise ValueError("cursor fields are invalid") from error
     if encode_facet_cursor(cursor) != value:
+        raise ValueError("cursor is not canonically encoded")
+    return cursor
+
+
+def encode_tag_cursor(cursor: CatalogTagCursor) -> str:
+    return _encode(
+        ["tag", cursor.revision, cursor.namespace, cursor.position, cursor.value_sha256]
+    )
+
+
+def decode_tag_cursor(value: str) -> CatalogTagCursor:
+    decoded = _decode(value)
+    if len(decoded) != 5 or decoded[0] != "tag":
+        raise ValueError("cursor is not a tag directory cursor")
+    _, revision, namespace, position, value_sha256 = decoded
+    if (
+        not _valid_position(revision, position)
+        or not isinstance(namespace, str)
+        or not _valid_sha256(value_sha256)
+    ):
+        raise ValueError("cursor fields are invalid")
+    try:
+        cursor = CatalogTagCursor(
+            revision=cast("int", revision),
+            namespace=namespace,
+            position=cast("int", position),
+            value_sha256=cast("str", value_sha256),
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError("cursor fields are invalid") from error
+    if encode_tag_cursor(cursor) != value:
         raise ValueError("cursor is not canonically encoded")
     return cursor

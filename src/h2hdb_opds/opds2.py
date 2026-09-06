@@ -12,6 +12,7 @@ from .auth import (
     BasicAuthenticator,
     authentication_document,
 )
+from .browse import BrowseTarget
 from .catalog_service import CatalogService
 from .config import OPDSConfig
 from .discovery import discovery_query
@@ -20,6 +21,7 @@ from .search import SEARCH_QUERY_MAXIMUM_BYTES
 from .serialization import (
     OPDS_FEED_MEDIA_TYPE,
     OPDS_PUBLICATION_MEDIA_TYPE,
+    browse_document,
     discovery_document,
     facet_navigation_document,
     navigation_document,
@@ -65,6 +67,42 @@ def create_opds2_router(
             selected = catalog.revision(revision)
         return JSONResponse(
             navigation_document(request, config, selected),
+            media_type=OPDS_FEED_MEDIA_TYPE,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @protected.get("/browse/{category}", name="tag_browse", response_class=JSONResponse)
+    def tag_browse(
+        request: Request,
+        category: str,
+        tag: Annotated[str | None, Query(max_length=65536)] = None,
+        cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
+        limit: Annotated[int | None, Query(ge=1, le=128)] = None,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
+    ) -> JSONResponse:
+        if set(request.query_params) - {"tag", "cursor", "limit", "revision"}:
+            raise HTTPException(status_code=422, detail="Unsupported browse parameter")
+        try:
+            target = BrowseTarget(category, tag)
+        except LookupError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        with recover_catalog_revision(
+            request,
+            config,
+            catalog,
+            endpoint="tag_browse",
+            revision=revision,
+            cursor=cursor,
+            limit=limit,
+            browse_target=target,
+        ):
+            selection = catalog.browse_page(
+                target=target, cursor=cursor, limit=limit, revision=revision
+            )
+        return JSONResponse(
+            browse_document(request, config, selection),
             media_type=OPDS_FEED_MEDIA_TYPE,
             headers={"Cache-Control": "no-store"},
         )

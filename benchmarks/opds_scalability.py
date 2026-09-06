@@ -54,6 +54,9 @@ from h2hdb import (
     CatalogRevision,
     CatalogRevisionNotFoundError,
     CatalogSubject,
+    CatalogTagCursor,
+    CatalogTagFilter,
+    CatalogTagPage,
     CatalogTimestampRange,
     StorageObjectDescriptor,
     StorageObjectKey,
@@ -1247,6 +1250,26 @@ class SyntheticCatalogReader:
             next_cursor=next_cursor,
             limit=limit,
         )
+
+    def list_tag_values(
+        self,
+        *,
+        namespace: str,
+        after: CatalogTagCursor | None = None,
+        limit: int = 50,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogTagPage:
+        raise NotImplementedError("synthetic benchmark does not measure tag browsing")
+
+    def list_tag_publications(
+        self,
+        *,
+        subject: CatalogTagFilter,
+        after: CatalogDiscoveryCursor | None = None,
+        limit: int = 50,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogDiscoveryPage:
+        raise NotImplementedError("synthetic benchmark does not measure tag browsing")
 
     def list_recent_publications(
         self,

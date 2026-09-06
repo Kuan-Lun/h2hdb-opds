@@ -76,7 +76,7 @@ async def test_authentication_document_is_public_and_catalog_is_protected(
     assert acquisition["rel"] == OPDS_ACQUISITION_REL
 
 
-async def test_root_groups_the_same_three_catalogs_and_advertises_search(
+async def test_root_groups_catalogs_and_tag_browsing_and_advertises_search(
     catalog_fixture: CatalogFixture,
     opds_config: OPDSConfig,
 ) -> None:
@@ -95,7 +95,12 @@ async def test_root_groups_the_same_three_catalogs_and_advertises_search(
     ]
     assert "navigation" not in document
     assert [entry["title"] for entry in document["groups"][0]["navigation"]] == [
-        "All Publications"
+        "All Publications",
+        "Artists",
+        "Groups",
+        "Soushuuhen",
+        "Multi-work Series",
+        "Uncensored",
     ]
     assert [entry["title"] for entry in document["groups"][1]["navigation"]] == [
         "Recently Uploaded",
@@ -105,12 +110,21 @@ async def test_root_groups_the_same_three_catalogs_and_advertises_search(
     navigation = [
         entry for group in document["groups"] for entry in group["navigation"]
     ]
-    assert [entry["properties"]["numberOfItems"] for entry in navigation] == [
+    assert [
+        entry["properties"]["numberOfItems"]
+        for entry in navigation
+        if "properties" in entry
+    ] == [
         3,
         3,
         3,
     ]
     assert [entry["rel"] for entry in navigation] == [
+        "subsection",
+        "subsection",
+        "subsection",
+        "subsection",
+        "subsection",
         "subsection",
         "http://opds-spec.org/sort/new",
         "subsection",

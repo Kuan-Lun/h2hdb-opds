@@ -1,6 +1,7 @@
 __all__ = [
     "OPDS_FEED_MEDIA_TYPE",
     "OPDS_PUBLICATION_MEDIA_TYPE",
+    "browse_document",
     "discovery_document",
     "facet_navigation_document",
     "navigation_document",
@@ -23,9 +24,12 @@ from h2hdb import (
     CatalogPublication,
     CatalogRecentWindow,
     CatalogRevision,
+    CatalogTagPage,
 )
 
 from .auth import AUTHENTICATION_DOCUMENT_REL, AUTHENTICATION_MEDIA_TYPE
+from .browse import BROWSE_CATEGORIES, BrowseTarget, browse_url
+from .catalog_service import BrowsePageSelection
 from .config import OPDSConfig
 from .cursor import encode_discovery_cursor, encode_facet_cursor
 from .discovery import (
@@ -161,7 +165,24 @@ def navigation_document(
         "groups": [
             {
                 "metadata": {"title": "Browse"},
-                "navigation": [all_publications],
+                "navigation": [
+                    all_publications,
+                    *(
+                        {
+                            "title": title,
+                            "href": browse_url(
+                                request,
+                                config,
+                                BrowseTarget(category),
+                                endpoint="tag_browse",
+                                revision=selected_revision,
+                            ),
+                            "type": OPDS_FEED_MEDIA_TYPE,
+                            "rel": "subsection",
+                        }
+                        for category, title in BROWSE_CATEGORIES.items()
+                    ),
+                ],
             },
             {
                 "metadata": {"title": "Recent Activity"},
@@ -688,6 +709,84 @@ def discovery_document(
     ]
     if facets:
         document["facets"] = facets
+    return document
+
+
+def browse_document(
+    request: Request,
+    config: OPDSConfig,
+    selection: BrowsePageSelection,
+) -> dict[str, object]:
+    page = selection.page
+    revision = page.revision.revision
+    cursors = [("self", selection.cursor), ("first", None)]
+    if selection.next_cursor is not None:
+        cursors.append(("next", selection.next_cursor))
+    links: list[dict[str, object]] = [
+        {
+            "rel": relation,
+            "href": browse_url(
+                request,
+                config,
+                selection.target,
+                endpoint="tag_browse",
+                revision=revision,
+                limit=page.limit,
+                cursor=cursor,
+            ),
+            "type": OPDS_FEED_MEDIA_TYPE,
+        }
+        for relation, cursor in cursors
+    ]
+    links.extend(_common_links(request, config))
+    if selection.target.tag is not None:
+        links.append(
+            {
+                "rel": "up",
+                "href": browse_url(
+                    request,
+                    config,
+                    BrowseTarget(selection.target.category),
+                    endpoint="tag_browse",
+                    revision=revision,
+                    limit=page.limit,
+                ),
+                "type": OPDS_FEED_MEDIA_TYPE,
+            }
+        )
+    document: dict[str, object] = {
+        "metadata": {
+            "@type": "http://schema.org/DataFeed",
+            "title": selection.target.title,
+            "modified": _format_datetime(page.revision.published_at),
+            "itemsPerPage": page.limit,
+        },
+        "links": links,
+    }
+    if isinstance(page, CatalogTagPage):
+        document["navigation"] = [
+            {
+                "title": value.value or "(empty tag)",
+                "href": browse_url(
+                    request,
+                    config,
+                    BrowseTarget(selection.target.category, value.value),
+                    endpoint="tag_browse",
+                    revision=revision,
+                    limit=page.limit,
+                ),
+                "type": OPDS_FEED_MEDIA_TYPE,
+                "rel": "subsection",
+            }
+            for value in page.values
+        ] or _empty_navigation(request, config, revision)
+    elif page.publications:
+        document["publications"] = [
+            publication_document(request, config, publication, revision)
+            for publication in page.publications
+        ]
+    else:
+        document["navigation"] = _empty_navigation(request, config, revision)
     return document
 
 

@@ -25,6 +25,10 @@ from h2hdb import (
     CatalogRevision,
     CatalogRevisionNotFoundError,
     CatalogSubject,
+    CatalogTagCursor,
+    CatalogTagFilter,
+    CatalogTagPage,
+    CatalogTagValue,
     CatalogTimestampRange,
     StorageObjectDescriptor,
     StorageObjectKey,
@@ -87,6 +91,7 @@ class FakeCatalog:
         self.page_revisions: list[CatalogRevision | int | None] = []
         self.discovery_corruption: str | None = None
         self.recent_corruption: str | None = None
+        self.tag_calls: list[tuple[str, int, CatalogRevision | int | None]] = []
 
     def add_revision(
         self,
@@ -398,6 +403,116 @@ class FakeCatalog:
             values=visible,
             next_cursor=next_cursor,
             limit=limit,
+        )
+
+    def list_tag_values(
+        self,
+        *,
+        namespace: str,
+        after: CatalogTagCursor | None = None,
+        limit: int = 50,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogTagPage:
+        selected = self._revision_at(revision)
+        self.tag_calls.append((namespace, limit, revision))
+        latest: dict[str, int] = {}
+        for publication in self.publications:
+            if not publication.artifacts:
+                continue
+            for subject in publication.subjects:
+                if subject.code == namespace:
+                    timestamp = int(publication.published_at.timestamp() * 1_000_000)
+                    latest[subject.name] = max(
+                        latest.get(subject.name, timestamp), timestamp
+                    )
+        values = tuple(
+            CatalogTagValue(value=value, latest_uploaded_time=timestamp)
+            for value, timestamp in sorted(
+                latest.items(), key=lambda item: (-item[1], item[0].encode("utf-8"))
+            )
+        )
+        start = 0
+        if after is not None:
+            if (
+                after.revision != selected.revision
+                or after.namespace != namespace
+                or after.position >= len(values)
+                or sha256(values[after.position].value.encode()).hexdigest()
+                != after.value_sha256
+            ):
+                raise CatalogCursorError("tag cursor boundary is invalid")
+            start = after.position + 1
+        visible = values[start : start + limit]
+        next_cursor = None
+        if start + limit < len(values):
+            next_cursor = CatalogTagCursor(
+                revision=selected.revision,
+                namespace=namespace,
+                position=start + len(visible) - 1,
+                value_sha256=sha256(visible[-1].value.encode()).hexdigest(),
+            )
+        return CatalogTagPage(
+            revision=selected,
+            namespace=namespace,
+            values=visible,
+            next_cursor=next_cursor,
+            limit=limit,
+        )
+
+    def list_tag_publications(
+        self,
+        *,
+        subject: CatalogTagFilter,
+        after: CatalogDiscoveryCursor | None = None,
+        limit: int = 50,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogDiscoveryPage:
+        selected = self._revision_at(revision)
+        self.tag_calls.append((subject.namespace, limit, revision))
+        digest = sha256(f"tag-browse:{subject!r}".encode()).hexdigest()
+        publications = tuple(
+            sorted(
+                (
+                    publication
+                    for publication in self.publications
+                    if publication.artifacts
+                    and any(
+                        value.code == subject.namespace and value.name == subject.value
+                        for value in publication.subjects
+                    )
+                ),
+                key=lambda publication: (
+                    -publication.published_at.timestamp(),
+                    publication.sort_title.encode("utf-8"),
+                    publication.publication_id,
+                ),
+            )
+        )
+        start = 0
+        if after is not None:
+            if (
+                after.revision != selected.revision
+                or after.query_sha256 != digest
+                or after.position >= len(publications)
+                or publications[after.position].publication_id != after.publication_id
+            ):
+                raise CatalogCursorError("tag publication cursor boundary is invalid")
+            start = after.position + 1
+        visible = publications[start : start + limit]
+        next_cursor = None
+        if start + limit < len(publications):
+            next_cursor = CatalogDiscoveryCursor(
+                revision=selected.revision,
+                query_sha256=digest,
+                position=start + len(visible) - 1,
+                publication_id=visible[-1].publication_id,
+            )
+        return CatalogDiscoveryPage(
+            revision=selected,
+            publications=visible,
+            next_cursor=next_cursor,
+            limit=limit,
+            total=None,
         )
 
     def get_publication(

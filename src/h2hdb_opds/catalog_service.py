@@ -1,6 +1,7 @@
 __all__ = [
     "ArtifactRead",
     "ArtifactUnavailable",
+    "BrowsePageSelection",
     "CatalogIntegrityError",
     "CatalogService",
     "CursorBoundaryInvalid",
@@ -36,9 +37,18 @@ from h2hdb import (
     CatalogRecentWindow,
     CatalogRevision,
     CatalogRevisionNotFoundError,
+    CatalogTagCursor,
+    CatalogTagPage,
 )
 
-from .cursor import decode_discovery_cursor, decode_facet_cursor
+from .browse import BrowseTarget
+from .cursor import (
+    decode_discovery_cursor,
+    decode_facet_cursor,
+    decode_tag_cursor,
+    encode_discovery_cursor,
+    encode_tag_cursor,
+)
 from .library import LibraryReadCoordinator
 from .publication import publication_gid, publication_identifier
 
@@ -96,6 +106,22 @@ class FacetPageSelection:
     page: CatalogFacetPage
     cursor: CatalogFacetCursor | None
     query: CatalogDiscoveryQuery
+
+
+@dataclass(frozen=True, slots=True)
+class BrowsePageSelection:
+    target: BrowseTarget
+    page: CatalogTagPage | CatalogDiscoveryPage
+    cursor: str | None
+
+    @property
+    def next_cursor(self) -> str | None:
+        after = self.page.next_cursor
+        if after is None:
+            return None
+        if isinstance(after, CatalogTagCursor):
+            return encode_tag_cursor(after)
+        return encode_discovery_cursor(after)
 
 
 @dataclass(frozen=True, slots=True)
@@ -413,6 +439,96 @@ class CatalogService:
                 "catalog facet page disagrees with its pinned request"
             )
         return FacetPageSelection(page=page, cursor=decoded, query=query)
+
+    def browse_page(
+        self,
+        *,
+        target: BrowseTarget,
+        cursor: str | None,
+        limit: int | None,
+        revision: int | None,
+    ) -> BrowsePageSelection:
+        with self._library_reads.read():
+            selected = self._resolve_revision(revision)
+            selected_limit = self._selected_limit(limit)
+            subject = target.subject
+            try:
+                decoded_tag = (
+                    decode_tag_cursor(cursor)
+                    if cursor is not None and subject is None
+                    else None
+                )
+                decoded_publication = (
+                    decode_discovery_cursor(cursor)
+                    if cursor is not None and subject is not None
+                    else None
+                )
+            except ValueError as error:
+                raise CursorInvalid from error
+            decoded = decoded_tag or decoded_publication
+            if decoded is not None and decoded.revision != selected.revision:
+                raise RevisionUnavailable(decoded.revision)
+            if decoded_tag is not None and decoded_tag.namespace != target.namespace:
+                raise CursorBoundaryInvalid
+            page: CatalogTagPage | CatalogDiscoveryPage
+            if not self._has_acquisition_catalog(selected):
+                if decoded is not None:
+                    raise CursorBoundaryInvalid
+                page = (
+                    CatalogTagPage(
+                        revision=selected,
+                        namespace=target.namespace,
+                        values=(),
+                        next_cursor=None,
+                        limit=selected_limit,
+                    )
+                    if subject is None
+                    else CatalogDiscoveryPage(
+                        revision=selected,
+                        publications=(),
+                        next_cursor=None,
+                        limit=selected_limit,
+                        total=None,
+                    )
+                )
+            else:
+                try:
+                    with self._pinned_revision_read(selected):
+                        page = (
+                            self._reader().list_tag_values(
+                                namespace=target.namespace,
+                                after=decoded_tag,
+                                limit=selected_limit,
+                                revision=selected,
+                            )
+                            if subject is None
+                            else self._reader().list_tag_publications(
+                                subject=subject,
+                                after=decoded_publication,
+                                limit=selected_limit,
+                                revision=selected,
+                            )
+                        )
+                except CatalogCursorError as error:
+                    raise CursorBoundaryInvalid from error
+            if (subject is None) != isinstance(page, CatalogTagPage):
+                raise CatalogIntegrityError("tag browse returned the wrong page family")
+            if page.revision != selected or page.limit != selected_limit:
+                raise CatalogIntegrityError("tag browse page differs from its request")
+            if isinstance(page, CatalogTagPage):
+                if (
+                    page.namespace != target.namespace
+                    or len(page.values) > selected_limit
+                ):
+                    raise CatalogIntegrityError("tag directory violates its bounds")
+            else:
+                if len(page.publications) > selected_limit:
+                    raise CatalogIntegrityError(
+                        "tag publication page exceeds its limit"
+                    )
+                for publication in page.publications:
+                    self._validate_publication(publication)
+            return BrowsePageSelection(target=target, page=page, cursor=cursor)
 
     def publication(
         self,

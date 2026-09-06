@@ -13,6 +13,7 @@ from .atom import (
     OPDS12_NAVIGATION_MEDIA_TYPE,
     OPEN_SEARCH_MEDIA_TYPE,
     acquisition_feed_document,
+    browse_feed_document,
     facet_navigation_feed_document,
     navigation_feed_document,
     opensearch_description_document,
@@ -20,6 +21,7 @@ from .atom import (
     recent_acquisition_feed_document,
 )
 from .auth import BasicAuthenticator
+from .browse import BrowseTarget
 from .catalog_service import CatalogService
 from .config import OPDSConfig
 from .discovery import discovery_query
@@ -88,6 +90,49 @@ def create_opds12_router(
             request,
             document=navigation_feed_document(request, config, selected),
             media_type=OPDS12_NAVIGATION_MEDIA_TYPE,
+        )
+
+    @router.head(
+        "/browse/{category}", name="opds12_head_tag_browse", response_class=Response
+    )
+    @router.get("/browse/{category}", name="opds12_tag_browse", response_class=Response)
+    def tag_browse(
+        request: Request,
+        category: str,
+        tag: Annotated[str | None, Query(max_length=65536)] = None,
+        cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
+        limit: Annotated[int | None, Query(ge=1, le=128)] = None,
+        revision: Annotated[int | None, Query(ge=1, le=_INT63_MAX)] = None,
+    ) -> Response:
+        if set(request.query_params) - {"tag", "cursor", "limit", "revision"}:
+            raise HTTPException(status_code=422, detail="Unsupported browse parameter")
+        try:
+            target = BrowseTarget(category, tag)
+        except LookupError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        with recover_catalog_revision(
+            request,
+            config,
+            catalog,
+            endpoint="opds12_tag_browse",
+            revision=revision,
+            cursor=cursor,
+            limit=limit,
+            browse_target=target,
+        ):
+            selection = catalog.browse_page(
+                target=target, cursor=cursor, limit=limit, revision=revision
+            )
+        return atom_response(
+            request,
+            document=browse_feed_document(request, config, selection),
+            media_type=(
+                OPDS12_NAVIGATION_MEDIA_TYPE
+                if target.subject is None
+                else OPDS12_ACQUISITION_MEDIA_TYPE
+            ),
         )
 
     @router.head(
