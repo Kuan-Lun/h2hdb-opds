@@ -194,7 +194,7 @@ def test_core_fixture_receipt_is_exactly_bound_to_ready_database(
     assert authority.fixture_mode == "manifest-bound-sql"
     assert authority.profile == "smoke"
     assert authority.schema_epoch == 3
-    assert authority.schema_version == 3
+    assert authority.schema_version == 4
     assert authority.publication_count == _SMOKE_PUBLICATION_COUNT
     assert authority.artifact_count == _SMOKE_PUBLICATION_COUNT
     assert authority.acquisition_descriptor_count == _SMOKE_PUBLICATION_COUNT
@@ -206,6 +206,25 @@ def test_core_fixture_receipt_is_exactly_bound_to_ready_database(
     assert hashlib.sha256(database.read_bytes()).hexdigest() == (
         authority.database_sha256
     )
+
+
+@pytest.mark.parametrize("schema_version", (1, 2, 3, 5))
+def test_core_fixture_rejects_other_schema_versions(
+    core_smoke_fixture: tuple[Path, Path],
+    tmp_path: Path,
+    schema_version: int,
+) -> None:
+    database, receipt = core_smoke_fixture
+    document = cast(
+        "dict[str, object]", json.loads(receipt.read_text(encoding="utf-8"))
+    )
+    schema = cast("dict[str, object]", document["schema"])
+    schema["schema_version"] = schema_version
+    unsupported = tmp_path / "unsupported-schema.json"
+    unsupported.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(FixtureReceiptError, match="schema epoch 3/version 4"):
+        load_core_fixture(database, unsupported)
 
 
 def test_core_fixture_validation_supports_explicit_v1_and_fails_closed(
