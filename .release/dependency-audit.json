@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-06T07:42:43+00:00",
-  "manifest_sha256": "cb7fd4522fd0cbda435f33b8d7046aa6c2ca7c0f84962a0f49fc3266f456619a",
+  "checked_at": "2026-09-06T10:19:37+00:00",
+  "manifest_sha256": "6fe1f76c7a34e7abba137c7b34f09d2dda2bc0771a4361ac6890a3fcee9b05f5",
   "node": [
     {
       "declared": ">=8.20.0 <9.0.0",
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.18.0",
+  "project_version": "0.19.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -42,9 +42,9 @@
       "url": "https://pypi.org/project/fastapi/"
     },
     {
-      "declared": "h2hdb>=0.33.0,<0.34.0",
+      "declared": "h2hdb>=0.34.0,<0.35.0",
       "group": "runtime",
-      "latest": "0.32.1",
+      "latest": "0.33.0",
       "latest_satisfies": false,
       "name": "h2hdb",
       "python_3_14": true,
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed every direct Python build, runtime, optional-development and Node dependency for 0.18.0. Registry candidates outside declared bounds were included. All non-core latest releases remain identical to the previously reviewed receipt and installed environment; no additional dependency changes are needed. The core bound >=0.33.0,<0.34.0 deliberately replaces older compatibility lanes and requires a freshly rebuilt epoch-3/schema-version-4 database. Registry h2hdb 0.32.1 is older than this new lower bound; reviewed the local core 0.33 schema/API changes and validated the explicit unpublished wheel with SHA256 62456066515988841377da679bd597161cce27b1bb0426d500635dcab290d677. All 71 installed core package files match that wheel, uv pip check passes, and 12 SQLite vertical-slice and manifest-bound fixture tests, including schema-version rejection passed against it. Consumers continue to use only public core facades and immutable values. This dependency review does not replace the required full merge gate and does not claim deep or live-MariaDB consumer coverage.",
+    "note": "Reviewed all direct build, runtime, optional development and Node registry candidates. External dependency versions are unchanged from the previous receipt and are installed at those latest compatible releases. The registry core release 0.33.0 is older than this coordinated task: require h2hdb >=0.34.0,<0.35.0 for schema 5 and the public tag browsing APIs, validated against the explicitly supplied local core repository at 0.34.0. This intentionally excludes older core schemas; no compatibility alias is provided. Both OPDS protocol schemas, exact empty/long tag transport, paging, cursor/revision recovery, and catalog integrity responses passed targeted checks. The complete merge gate separately validates the final tree and SQLite core integration.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
