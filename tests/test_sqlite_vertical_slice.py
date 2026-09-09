@@ -1,3 +1,4 @@
+from hashlib import sha256
 from pathlib import Path
 
 from h2hdb import (
@@ -23,6 +24,7 @@ async def test_sqlite_epoch_three_is_opened_read_only_without_legacy_writer_api(
     )
     report = VNextDatabaseAdminFacade(writable_config).initialize()
     assert report.epoch == 3
+    assert report.schema_version == 6
     assert report.state == "READY"
 
     library_root = tmp_path / "current"
@@ -31,6 +33,7 @@ async def test_sqlite_epoch_three_is_opened_read_only_without_legacy_writer_api(
     coordination_root.mkdir()
     (coordination_root / "publication.lock").touch()
 
+    database_sha256 = sha256(database_path.read_bytes()).digest()
     app = create_app(
         OPDSConfig(
             library_root=library_root,
@@ -42,8 +45,12 @@ async def test_sqlite_epoch_three_is_opened_read_only_without_legacy_writer_api(
     async with app_client(app) as client:
         health = await client.get("/health")
         current_feed = await client.get("/opds/v2/publications")
+        atom_feed = await client.get("/opds/v1.2/publications")
 
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
     assert current_feed.status_code == 404
     assert current_feed.json() == {"detail": "Catalog revision current not found"}
+    assert atom_feed.status_code == 404
+    assert atom_feed.json() == {"detail": "Catalog revision current not found"}
+    assert sha256(database_path.read_bytes()).digest() == database_sha256

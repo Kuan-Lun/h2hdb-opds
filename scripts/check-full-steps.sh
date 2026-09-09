@@ -44,16 +44,28 @@ import asyncio
 import sys
 import tempfile
 import tomllib
-from importlib.metadata import version
+from importlib.metadata import requires, version
 from pathlib import Path
 
 import httpx
+from packaging.requirements import Requirement
 
 import h2hdb_opds
 
 assert Path(h2hdb_opds.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
 expected_version = tomllib.loads(Path(sys.argv[1]).read_text())["project"]["version"]
 assert version("h2hdb-opds") == expected_version
+
+# Installing the candidate with --no-deps must not hide incompatible wheel
+# metadata behind a working development environment.
+for declaration in requires("h2hdb-opds") or ():
+    requirement = Requirement(declaration)
+    if requirement.marker is not None and not requirement.marker.evaluate({"extra": ""}):
+        continue
+    installed = version(requirement.name)
+    assert requirement.specifier.contains(installed, prereleases=True), (
+        f"installed wheel requires {requirement}; environment has {requirement.name}=={installed}"
+    )
 
 
 async def check_version_api() -> None:

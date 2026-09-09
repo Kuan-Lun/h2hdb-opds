@@ -6,11 +6,15 @@ import os
 import shutil
 import subprocess
 import sys
+from email.parser import BytesParser
+from importlib.metadata import version
 from pathlib import Path, PurePosixPath
 from typing import cast
+from zipfile import ZipFile
 
 import h2hdb
 import pytest
+from packaging.requirements import Requirement
 
 from benchmarks.opds_sqlite_scalability import (
     BENCHMARK_SCHEMA_VERSION,
@@ -181,6 +185,54 @@ def test_explicit_sqlite_fixture_is_validated_and_copied_before_use(
     assert load_core_fixture(database, receipt).profile == "smoke"
 
 
+def test_built_wheel_accepts_the_core_used_by_required_sqlite_integration(
+    core_smoke_fixture: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """Do not publish constraints that exclude the core our real HTTP fixture tests."""
+    database, receipt = core_smoke_fixture
+    authority = load_core_fixture(database, receipt)
+    completed = subprocess.run(
+        (
+            sys.executable,
+            "-m",
+            "build",
+            "--wheel",
+            "--no-isolation",
+            "--outdir",
+            str(tmp_path),
+        ),
+        cwd=Path(__file__).resolve().parents[1],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    wheels = tuple(tmp_path.glob("*.whl"))
+    assert len(wheels) == 1
+    with ZipFile(wheels[0]) as archive:
+        names = tuple(
+            name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+        )
+        assert len(names) == 1
+        metadata = BytesParser().parsebytes(archive.read(names[0]))
+    requirements = tuple(
+        Requirement(str(raw)) for raw in metadata.get_all("Requires-Dist", [])
+    )
+    required_core = tuple(
+        requirement
+        for requirement in requirements
+        if requirement.name == "h2hdb"
+        and (requirement.marker is None or requirement.marker.evaluate({"extra": ""}))
+    )
+    assert len(required_core) == 1
+    for tested_core in (version("h2hdb"), authority.core_version):
+        assert required_core[0].specifier.contains(tested_core), (
+            f"Built wheel declares {required_core[0]}, excluding tested core {tested_core}"
+        )
+
+
 def test_core_fixture_receipt_is_exactly_bound_to_ready_database(
     core_smoke_fixture: tuple[Path, Path],
 ) -> None:
@@ -194,7 +246,7 @@ def test_core_fixture_receipt_is_exactly_bound_to_ready_database(
     assert authority.fixture_mode == "manifest-bound-sql"
     assert authority.profile == "smoke"
     assert authority.schema_epoch == 3
-    assert authority.schema_version == 5
+    assert authority.schema_version == 6
     assert authority.publication_count == _SMOKE_PUBLICATION_COUNT
     assert authority.artifact_count == _SMOKE_PUBLICATION_COUNT
     assert authority.acquisition_descriptor_count == _SMOKE_PUBLICATION_COUNT
@@ -208,7 +260,7 @@ def test_core_fixture_receipt_is_exactly_bound_to_ready_database(
     )
 
 
-@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 6))
+@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 7))
 def test_core_fixture_rejects_other_schema_versions(
     core_smoke_fixture: tuple[Path, Path],
     tmp_path: Path,
@@ -223,7 +275,7 @@ def test_core_fixture_rejects_other_schema_versions(
     unsupported = tmp_path / "unsupported-schema.json"
     unsupported.write_text(json.dumps(document), encoding="utf-8")
 
-    with pytest.raises(FixtureReceiptError, match="schema epoch 3/version 5"):
+    with pytest.raises(FixtureReceiptError, match="schema epoch 3/version 6"):
         load_core_fixture(database, unsupported)
 
 
