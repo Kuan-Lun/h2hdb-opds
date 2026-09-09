@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-06T14:25:06+00:00",
-  "manifest_sha256": "338a954842c598c8083054098edbc96fea0c20528dc7e7090e8a8deee0891a25",
+  "checked_at": "2026-09-09T01:49:59+00:00",
+  "manifest_sha256": "153e3c766436291f0692d6553c8a130b9798cc6000824f9081dffa2f92ad1a12",
   "node": [
     {
       "declared": ">=8.20.0 <9.0.0",
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.20.1",
+  "project_version": "0.21.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -42,9 +42,9 @@
       "url": "https://pypi.org/project/fastapi/"
     },
     {
-      "declared": "h2hdb>=0.35.0,<0.36.0",
+      "declared": "h2hdb>=0.36.0,<0.37.0",
       "group": "runtime",
-      "latest": "0.35.0",
+      "latest": "0.36.0",
       "latest_satisfies": true,
       "name": "h2hdb",
       "python_3_14": true,
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all 15 Python and 3 Node dependency records against the previous receipt. External dependency candidates are unchanged. The h2hdb registry candidate is now 0.35.0 and satisfies the existing >=0.35.0,<0.36.0 bound; its generic tag browsing and preview APIs are already used and validated by this repository. No dependency manifest changes are needed. All 441 targeted browse, thumbnail, catalog, and revision recovery tests passed. The exact-tree release gate separately validates the final 0.20.1 candidate.",
+    "note": "Reviewed all 15 Python and 3 Node direct requirement entries against current registry metadata. Compared with the previous receipt, all external dependency release candidates are unchanged; their previously reviewed release notes and compatibility conclusions remain applicable. The only changed candidate is the now-published h2hdb 0.36.0. Reviewed the local core 0.36 schema/source-preparation changes: OPDS retains its public read-only catalog API and does not use the changed prepare_source writer contract. Rebuilt the development environment with the full resolver and the PyPI core 0.36.0 wheel. All latest releases satisfy the declared bounds and Python 3.14. Verified the actual OPDS wheel metadata accepts both installed core and the core used by the mandatory 165-publication SQLite HTTP fixture; 15 targeted tests cover schema 6, rejection of old schema 5, HTTP query/facet oracles and read-only OPDS 1.2/2. Final exact-tree release gate and Linux candidate-cohort validation are reported separately.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
