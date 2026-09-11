@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-09T01:49:59+00:00",
-  "manifest_sha256": "153e3c766436291f0692d6553c8a130b9798cc6000824f9081dffa2f92ad1a12",
+  "checked_at": "2026-09-11T08:57:54+00:00",
+  "manifest_sha256": "26555491f8fa7707f654443c1aa25270c4d2efc645f2a68f29f7d54ac86f71d1",
   "node": [
     {
       "declared": ">=8.20.0 <9.0.0",
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.21.0",
+  "project_version": "0.21.1",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -42,9 +42,9 @@
       "url": "https://pypi.org/project/fastapi/"
     },
     {
-      "declared": "h2hdb>=0.36.0,<0.37.0",
+      "declared": "h2hdb>=0.36.0,<0.38.0",
       "group": "runtime",
-      "latest": "0.36.0",
+      "latest": "0.37.0",
       "latest_satisfies": true,
       "name": "h2hdb",
       "python_3_14": true,
@@ -71,7 +71,7 @@
     {
       "declared": "build>=1.5.0",
       "group": "optional:dev",
-      "latest": "1.6.0",
+      "latest": "1.6.1",
       "latest_satisfies": true,
       "name": "build",
       "python_3_14": true,
@@ -152,7 +152,7 @@
     {
       "declared": "ruff>=0.16.4",
       "group": "optional:dev",
-      "latest": "0.16.6",
+      "latest": "0.16.7",
       "latest_satisfies": true,
       "name": "ruff",
       "python_3_14": true,
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all 15 Python and 3 Node direct requirement entries against current registry metadata. Compared with the previous receipt, all external dependency release candidates are unchanged; their previously reviewed release notes and compatibility conclusions remain applicable. The only changed candidate is the now-published h2hdb 0.36.0. Reviewed the local core 0.36 schema/source-preparation changes: OPDS retains its public read-only catalog API and does not use the changed prepare_source writer contract. Rebuilt the development environment with the full resolver and the PyPI core 0.36.0 wheel. All latest releases satisfy the declared bounds and Python 3.14. Verified the actual OPDS wheel metadata accepts both installed core and the core used by the mandatory 165-publication SQLite HTTP fixture; 15 targeted tests cover schema 6, rejection of old schema 5, HTTP query/facet oracles and read-only OPDS 1.2/2. Final exact-tree release gate and Linux candidate-cohort validation are reported separately.",
+    "note": "Reviewed all 15 Python and 3 Node direct requirement entries against current registry metadata, including candidates outside the previous bounds. Only h2hdb 0.37.0, build 1.6.1 and Ruff 0.16.7 changed since the previous reviewed receipt; the other external release candidates and their prior compatibility conclusions are unchanged. Compared core 0.36.0 through 0.37.0 source: the breaking source-adapter writer protocol does not change OPDS public read-only catalog APIs, catalog/domain values or schema epoch 3/version 6. Widened the bounded core requirement to >=0.36.0,<0.38.0 without a shim or data migration. The full bounded non-deep suite passed 836 tests on installed PyPI core 0.36.0, including the real 165-publication SQLite HTTP fixture and wheel metadata check. Rebuilt the development environment through the full registry resolver with PyPI core 0.37.0 and all current candidates; 15 SQLite catalog/HTTP and wheel contract tests passed on core 0.37.0. The built-wheel regression accepts both supported core lanes and rejects 0.35.5 and unreviewed 0.38.0. Reviewed build 1.6.1 official tagged CHANGELOG (https://github.com/pypa/build/blob/1.6.1/CHANGELOG.rst): Windows symlink-probe regression fix; reviewed Ruff 0.16.7 release notes (https://github.com/astral-sh/ruff/releases/tag/0.16.7): lint/format fixes and preview additions. Both latest tools are installed and pass the fast gate. All latest direct releases satisfy declared bounds and Python 3.14. Final exact-tree full gate and cohort-level installation checks are reported separately.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
