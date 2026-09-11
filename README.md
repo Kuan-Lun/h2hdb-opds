@@ -247,7 +247,10 @@ HTTP 的 `tag` 與 `tag_namespace` 成對參數繼續支援；移除的是搜尋
 ### 準備環境與書庫
 
 需要 Python 3.14 以上版本，以及支援 POSIX 檔案鎖的環境，例如 Linux 或 macOS。
-目前使用的 H2HDB 相容版本範圍為 `>=0.36.0,<0.37.0`。
+目前使用的 H2HDB 相容版本範圍為 `>=0.36.0,<0.38.0`。
+Core 0.37 的 ingest source adapter 變更不影響 OPDS 使用的公開唯讀 catalog API；
+OPDS 已驗證 core 0.36.0 與 0.37.0 的 SQLite catalog／HTTP 整合。
+從這兩個 core 版本搭配的 OPDS 升級，不需要轉換資料庫或重建 CBZ。
 啟動前，請先由 H2HDB 與 ingest 完成資料庫初始化及書庫發佈，準備：
 
 - 符合該版本 epoch 3／schema version 6、已標記為 `READY` 的資料庫。
