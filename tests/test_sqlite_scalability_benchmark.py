@@ -231,14 +231,14 @@ def test_built_wheel_accepts_the_core_used_by_required_sqlite_integration(
         assert required_core[0].specifier.contains(tested_core), (
             f"Built wheel declares {required_core[0]}, excluding tested core {tested_core}"
         )
-    # Both released catalog-compatible lanes are intentionally supported. Their
+    # The verified catalog-compatible lanes are intentionally supported. Their
     # HTTP fixture runs must not be undermined by stricter published metadata;
     # the next unreviewed lane remains outside the resolver's candidate set.
-    for supported_core in ("0.36.0", "0.37.0"):
+    for supported_core in ("0.36.0", "0.37.0", "0.38.0"):
         assert required_core[0].specifier.contains(supported_core), (
             f"Built wheel excludes supported core {supported_core}"
         )
-    for unsupported_core in ("0.35.5", "0.38.0"):
+    for unsupported_core in ("0.35.5", "0.39.0"):
         assert not required_core[0].specifier.contains(unsupported_core), (
             f"Built wheel admits unreviewed core {unsupported_core}"
         )
