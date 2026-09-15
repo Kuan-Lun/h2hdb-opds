@@ -199,9 +199,13 @@ revision-scoped bounded authority，不得自行掃描 database、建立第二�
 coordination fencing 與 catalog repository。只能使用 core 公開介面，不得
 import connector/repository internals，不得建立或 migrate schema。database
 access 必須強制 read-only，只能公開已 publication 的 catalog revision。
-production startup 使用 `open_database()` 執行精確 epoch-3 `READY` audit；
-caller 注入的 `CatalogReader` 視為已初始化 boundary，直接使用。任何 startup
-path 均不得呼叫 `migrate()`。
+production startup 使用公開 `VNextDatabaseAdminFacade.check_readiness()` 驗證
+相容的 epoch/version/manifest READY marker，finally 關閉 admin，再建立
+`VNextCatalogFacade`。這是快速接納，不是完整資料稽核；完整稽核由 writer 管理
+或明確執行 core `check`。Caller 注入的 `CatalogReader` 視為已初始化 boundary，
+直接使用且仍由 caller 關閉；自建 catalog facade 在 lifespan 結束或失敗時關閉。
+不得以快速接納取代 request-time revision 與 publication fencing，
+任何 startup path 均不得初始化或 migrate schema。
 
 ### HTTP and filesystem invariants
 

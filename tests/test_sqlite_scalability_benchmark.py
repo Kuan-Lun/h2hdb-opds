@@ -231,14 +231,13 @@ def test_built_wheel_accepts_the_core_used_by_required_sqlite_integration(
         assert required_core[0].specifier.contains(tested_core), (
             f"Built wheel declares {required_core[0]}, excluding tested core {tested_core}"
         )
-    # The verified catalog-compatible lanes are intentionally supported. Their
-    # HTTP fixture runs must not be undermined by stricter published metadata;
-    # the next unreviewed lane remains outside the resolver's candidate set.
-    for supported_core in ("0.36.0", "0.37.0", "0.38.0"):
+    # The schema-7 lane is required by the distributed reader. Earlier schema
+    # lanes and the next unreviewed lane remain outside the resolver candidates.
+    for supported_core in ("0.39.0",):
         assert required_core[0].specifier.contains(supported_core), (
             f"Built wheel excludes supported core {supported_core}"
         )
-    for unsupported_core in ("0.35.5", "0.39.0"):
+    for unsupported_core in ("0.36.0", "0.37.0", "0.38.3", "0.40.0"):
         assert not required_core[0].specifier.contains(unsupported_core), (
             f"Built wheel admits unreviewed core {unsupported_core}"
         )
@@ -257,7 +256,7 @@ def test_core_fixture_receipt_is_exactly_bound_to_ready_database(
     assert authority.fixture_mode == "manifest-bound-sql"
     assert authority.profile == "smoke"
     assert authority.schema_epoch == 3
-    assert authority.schema_version == 6
+    assert authority.schema_version == 7
     assert authority.publication_count == _SMOKE_PUBLICATION_COUNT
     assert authority.artifact_count == _SMOKE_PUBLICATION_COUNT
     assert authority.acquisition_descriptor_count == _SMOKE_PUBLICATION_COUNT
@@ -271,7 +270,7 @@ def test_core_fixture_receipt_is_exactly_bound_to_ready_database(
     )
 
 
-@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 7))
+@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6, 8))
 def test_core_fixture_rejects_other_schema_versions(
     core_smoke_fixture: tuple[Path, Path],
     tmp_path: Path,
@@ -286,7 +285,7 @@ def test_core_fixture_rejects_other_schema_versions(
     unsupported = tmp_path / "unsupported-schema.json"
     unsupported.write_text(json.dumps(document), encoding="utf-8")
 
-    with pytest.raises(FixtureReceiptError, match="schema epoch 3/version 6"):
+    with pytest.raises(FixtureReceiptError, match="schema epoch 3/version 7"):
         load_core_fixture(database, unsupported)
 
 
@@ -363,10 +362,15 @@ def test_core_fixture_validation_supports_explicit_v1_and_fails_closed(
 
 async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
     core_smoke_fixture: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     database, receipt = core_smoke_fixture
     before = hashlib.sha256(database.read_bytes()).hexdigest()
 
+    def forbid_full_audit(_admin: h2hdb.VNextDatabaseAdminFacade) -> None:
+        pytest.fail("published-catalog reader startup must not run a full audit")
+
+    monkeypatch.setattr(h2hdb.VNextDatabaseAdminFacade, "check", forbid_full_audit)
     report = await run_sqlite_benchmark(
         database,
         receipt,
@@ -379,7 +383,10 @@ async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
     mode = cast("dict[str, object]", report["mode"])
     assert mode["name"] == "sql-backed-public-http"
     assert mode["sql_backed"] is True
-    assert mode["catalog_open_boundary"] == "h2hdb.open_database(read_only=True)"
+    assert (
+        mode["catalog_open_boundary"]
+        == "VNextDatabaseAdminFacade.check_readiness() + VNextCatalogFacade"
+    )
     assert mode["reader_injected"] is False
     assert mode["core_internal_api_used"] is False
     assert mode["direct_sql_used"] is False
@@ -393,7 +400,7 @@ async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
     schema = cast("dict[str, object]", fixture["schema"])
     assert schema["state"] == "READY"
     assert schema["full_ready_audit_passed_by_core_fixture"] is True
-    assert schema["full_ready_audit_passed_by_opds_startup"] is True
+    assert schema["readiness_admission_passed_by_opds_startup"] is True
 
     setup = cast("dict[str, object]", report["setup"])
     assert setup["startup_timing_included_in_request_samples"] is False
@@ -401,8 +408,8 @@ async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
     for field in (
         "input_receipt_and_database_validation_ns",
         "source_manifest_build_ns",
-        "timing_pass_startup_and_full_ready_audit_ns",
-        "memory_pass_startup_and_full_ready_audit_ns",
+        "timing_pass_startup_and_readiness_admission_ns",
+        "memory_pass_startup_and_readiness_admission_ns",
     ):
         value = setup[field]
         assert isinstance(value, int)
