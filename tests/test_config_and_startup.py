@@ -392,18 +392,39 @@ async def test_startup_rejects_untrusted_coordination_contract(
                 pass
 
 
-async def test_production_startup_uses_read_only_open_database_once(
+@pytest.mark.parametrize("failure_after_startup", [False, True])
+async def test_production_startup_checks_readiness_and_closes_owned_resources(
     catalog_fixture: CatalogFixture,
     monkeypatch: pytest.MonkeyPatch,
     opds_config: OPDSConfig,
+    failure_after_startup: bool,
 ) -> None:
     opened_access_modes: list[DatabaseAccessMode] = []
+    events: list[str] = []
 
-    def fake_open_database(config: CoreConfig) -> FakeCatalog:
+    class Admin:
+        def __init__(self, config: CoreConfig) -> None:
+            assert config.database.access_mode is DatabaseAccessMode.read_only
+
+        def check_readiness(self) -> None:
+            events.append("readiness")
+
+        def close(self) -> None:
+            events.append("admin-closed")
+
+    def fake_catalog(config: CoreConfig) -> FakeCatalog:
+        events.append("catalog")
         opened_access_modes.append(config.database.access_mode)
         return catalog_fixture.catalog
 
-    monkeypatch.setattr(app_module, "open_database", fake_open_database)
+    monkeypatch.setattr(app_module, "VNextDatabaseAdminFacade", Admin)
+    monkeypatch.setattr(app_module, "VNextCatalogFacade", fake_catalog)
+    monkeypatch.setattr(
+        catalog_fixture.catalog,
+        "close",
+        lambda: events.append("catalog-closed"),
+        raising=False,
+    )
     app = create_app(
         OPDSConfig(
             library_root=opds_config.library_root,
@@ -413,7 +434,65 @@ async def test_production_startup_uses_read_only_open_database_once(
         )
     )
 
-    async with app_client(app) as client:
-        assert (await client.get("/health")).status_code == 200
+    if failure_after_startup:
+        with pytest.raises(RuntimeError, match="serving failed"):
+            async with app_client(app) as client:
+                assert (await client.get("/health")).status_code == 200
+                raise RuntimeError("serving failed")
+    else:
+        async with app_client(app) as client:
+            assert (await client.get("/health")).status_code == 200
 
     assert opened_access_modes == [DatabaseAccessMode.read_only]
+    assert events == ["readiness", "admin-closed", "catalog", "catalog-closed"]
+
+
+@pytest.mark.parametrize("failure", ["readiness", "catalog"])
+async def test_startup_closes_admin_when_admission_or_catalog_creation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    opds_config: OPDSConfig,
+    failure: str,
+) -> None:
+    events: list[str] = []
+
+    class Admin:
+        def __init__(self, config: CoreConfig) -> None:
+            assert config.database.access_mode is DatabaseAccessMode.read_only
+
+        def check_readiness(self) -> None:
+            events.append("readiness")
+            if failure == "readiness":
+                raise RuntimeError("readiness failed")
+
+        def close(self) -> None:
+            events.append("admin-closed")
+
+    def fail_catalog(_config: CoreConfig) -> FakeCatalog:
+        events.append("catalog")
+        raise RuntimeError("catalog failed")
+
+    monkeypatch.setattr(app_module, "VNextDatabaseAdminFacade", Admin)
+    monkeypatch.setattr(app_module, "VNextCatalogFacade", fail_catalog)
+    with pytest.raises(RuntimeError, match=f"{failure} failed"):
+        async with app_client(create_app(opds_config)):
+            pytest.fail("failed admission must not start HTTP serving")
+    assert events == ["readiness", "admin-closed"] + (
+        ["catalog"] if failure == "catalog" else []
+    )
+
+
+async def test_injected_catalog_remains_caller_owned(
+    monkeypatch: pytest.MonkeyPatch,
+    catalog_fixture: CatalogFixture,
+    opds_config: OPDSConfig,
+) -> None:
+    def forbid_close() -> None:
+        pytest.fail("an injected catalog remains owned by its caller")
+
+    def forbid_admin(_config: CoreConfig) -> None:
+        pytest.fail("an injected reader must not open a second database")
+
+    monkeypatch.setattr(catalog_fixture.catalog, "close", forbid_close, raising=False)
+    monkeypatch.setattr(app_module, "VNextDatabaseAdminFacade", forbid_admin)
+    async with app_client(create_app(opds_config, catalog_fixture.catalog)) as client:
+        assert (await client.get("/health")).status_code == 200

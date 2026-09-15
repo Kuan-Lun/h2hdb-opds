@@ -4,7 +4,8 @@ The input database and receipt must be emitted together by
 ``h2hdb/benchmarks/sqlite_catalog_scalability.py``.  This tool never writes SQL,
 imports a core implementation module, or injects a catalog reader.  It opens the
 database through the normal OPDS application lifespan, which in turn calls the
-public ``h2hdb.open_database(..., read_only=True)`` boundary.
+public ``check_readiness() + VNextCatalogFacade`` boundary. Both facades use
+a read-only CoreConfig.
 """
 
 from __future__ import annotations
@@ -46,7 +47,7 @@ from benchmarks.opds_scalability import (
 )
 from h2hdb_opds import OPDSConfig, create_app
 
-BENCHMARK_SCHEMA_VERSION: Final = 1
+BENCHMARK_SCHEMA_VERSION: Final = 2
 SUPPORTED_CORE_RECEIPT_FORMAT: Final = "h2hdb-sqlite-catalog-scalability-v1"
 SUPPORTED_CORE_RECEIPT_SCHEMA_VERSION: Final = 1
 CORE_FIXTURE_MODE: Final = "manifest-bound-sql"
@@ -126,7 +127,7 @@ class _FileDigest:
 
 @dataclass(frozen=True, slots=True)
 class _TimingPass:
-    startup_ready_audit_ns: int
+    startup_readiness_admission_ns: int
     operations: dict[str, dict[str, object]]
     responses: dict[str, _FetchedResponse]
     operation_order: tuple[str, ...]
@@ -368,8 +369,8 @@ def load_core_fixture(
         field="receipt.schema.schema_version",
         minimum=1,
     )
-    if schema_epoch != 3 or schema_version != 6:
-        raise FixtureReceiptError("core fixture must use schema epoch 3/version 6")
+    if schema_epoch != 3 or schema_version != 7:
+        raise FixtureReceiptError("core fixture must use schema epoch 3/version 7")
     if (
         schema.get("state") != "READY"
         or schema.get("full_ready_audit_passed") is not True
@@ -629,12 +630,12 @@ async def _benchmark_client(
         application: FastAPI = create_app(config)
         lifespan_started = time.perf_counter_ns()
         async with application.router.lifespan_context(application):
-            startup_ready_audit_ns = time.perf_counter_ns() - lifespan_started
+            startup_readiness_admission_ns = time.perf_counter_ns() - lifespan_started
             async with AsyncClient(
                 transport=ASGITransport(app=application),
                 base_url=_PUBLIC_BASE_URL,
             ) as client:
-                yield client, startup_ready_audit_ns
+                yield client, startup_readiness_admission_ns
 
 
 _OperationMeasurer = Callable[
@@ -749,7 +750,7 @@ async def _run_timing_pass(
             measure, authority=authority, retain_responses=True
         )
     return _TimingPass(
-        startup_ready_audit_ns=startup_ns,
+        startup_readiness_admission_ns=startup_ns,
         operations=operations,
         responses=responses,
         operation_order=order,
@@ -1099,7 +1100,7 @@ def _authority_document(authority: CoreFixtureAuthority) -> dict[str, object]:
             "state": "READY",
             "manifest_sha256": authority.schema_manifest_sha256,
             "full_ready_audit_passed_by_core_fixture": True,
-            "full_ready_audit_passed_by_opds_startup": True,
+            "readiness_admission_passed_by_opds_startup": True,
         },
         "database": {
             "sha256": authority.database_sha256,
@@ -1207,7 +1208,7 @@ async def run_sqlite_benchmark(
             "name": "sql-backed-public-http",
             "sql_backed": True,
             "protocol": "OPDS 2.0",
-            "catalog_open_boundary": "h2hdb.open_database(read_only=True)",
+            "catalog_open_boundary": "VNextDatabaseAdminFacade.check_readiness() + VNextCatalogFacade",
             "reader_injected": False,
             "core_internal_api_used": False,
             "direct_sql_used": False,
@@ -1220,7 +1221,7 @@ async def run_sqlite_benchmark(
                 "OPDS 2 document construction and JSON serialization",
             ],
             "request_timing_excludes": [
-                "application startup and full READY audit",
+                "application startup and READY marker admission",
                 "fixture receipt and database hashing",
                 "source provenance hashing",
                 "Python allocation tracing",
@@ -1243,10 +1244,10 @@ async def run_sqlite_benchmark(
         "setup": {
             "input_receipt_and_database_validation_ns": input_validation_ns,
             "source_manifest_build_ns": source_provenance_ns,
-            "timing_pass_startup_and_full_ready_audit_ns": (
-                timing.startup_ready_audit_ns
+            "timing_pass_startup_and_readiness_admission_ns": (
+                timing.startup_readiness_admission_ns
             ),
-            "memory_pass_startup_and_full_ready_audit_ns": memory_startup_ns,
+            "memory_pass_startup_and_readiness_admission_ns": memory_startup_ns,
             "startup_timing_included_in_request_samples": False,
             "timing_tracemalloc_enabled": False,
         },
@@ -1289,7 +1290,7 @@ async def run_sqlite_benchmark(
                 runtime_core_version == authority.core_version
             ),
             "schema_compatibility_authority": (
-                "successful public open_database full READY audit against the exact "
+                "successful public READY marker admission against the exact "
                 "receipt-bound database and schema manifest"
             ),
         },

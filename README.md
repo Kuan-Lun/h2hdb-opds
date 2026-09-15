@@ -244,22 +244,26 @@ HTTP 的 `tag` 與 `tag_namespace` 成對參數繼續支援；移除的是搜尋
 
 ## 自行架設
 
+OPDS 啟動時以唯讀方式快速核對資料庫的 epoch、版本與 manifest READY 標記，
+不執行全庫稽核；完整稽核由 ingest 排程管理或明確執行 core `check`。每次請求仍
+驗證 published revision 與 publication filesystem fence。
+
 ### 準備環境與書庫
 
 需要 Python 3.14 以上版本，以及支援 POSIX 檔案鎖的環境，例如 Linux 或 macOS。
-目前使用的 H2HDB 相容版本範圍為 `>=0.36.0,<0.39.0`。
-Core 0.36、0.37 與 0.38 共用 OPDS 使用的公開唯讀 catalog API 與 schema。
-OPDS 已驗證這三個 core 版本的 SQLite catalog／HTTP 整合；
-在這些版本之間升級，不需要轉換資料庫或重建 CBZ。
+目前使用的 H2HDB 相容版本範圍為 `>=0.39.0,<0.40.0`。
+Core 0.39 使用 epoch 3／schema version 7，將完整稽核的排程與正常結束狀態
+保存在資料庫。既有 schema 6 必須先使用 core 提供的離線一次性轉換工具
+`upgrade-audit-schema.py`；轉換保留 catalog 與 CBZ，不由 OPDS 自動執行。
 啟動前，請先由 H2HDB 與 ingest 完成資料庫初始化及書庫發佈，準備：
 
-- 符合該版本 epoch 3／schema version 6、已標記為 `READY` 的資料庫。
+- 符合該版本 epoch 3／schema version 7、已標記為 `READY` 的資料庫。
 - ingest 產生的完整 `current` 目錄，包含 `acquisitions` 與 `artwork`。
 - 同一書庫旁的 `.h2hdb-coordination` 目錄，內含既有的 `publication.lock`。
 
 OPDS 以唯讀方式開啟資料庫及書庫，不會建立或升級 schema，也不會補建 coordination
 檔案。只有已發佈且有可下載檔案的書庫內容會出現在閱讀器。
-舊版或不相符的資料庫需由 H2HDB／ingest 另建新資料庫並重新發佈；
+schema 6 以外的舊版或不相符資料庫需由 H2HDB／ingest 另建新資料庫並重新發佈；
 目前只接受 `managed-filesystem-v2` 儲存格式，不讀取舊的 `hash-v1` 書庫。
 
 取得本專案原始碼後，在專案目錄執行以下命令安裝：

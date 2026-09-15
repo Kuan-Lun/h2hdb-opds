@@ -8,7 +8,12 @@ from importlib.metadata import version
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, RedirectResponse, Response
-from h2hdb import CatalogReader, CatalogSearchQueryTooComplexError, open_database
+from h2hdb import (
+    CatalogReader,
+    CatalogSearchQueryTooComplexError,
+    VNextCatalogFacade,
+    VNextDatabaseAdminFacade,
+)
 from starlette.exceptions import HTTPException
 
 from .auth import (
@@ -74,10 +79,26 @@ def create_app(
             settings.public_base_url,
         )
         library_reads.validate()
+        owned_reader: VNextCatalogFacade | None = None
         if reader is None:
-            reader = open_database(settings.core)
-        application.state.catalog_reader = reader
-        yield
+            admin = VNextDatabaseAdminFacade(settings.core)
+            try:
+                admin.check_readiness()
+            finally:
+                admin.close()
+            owned_reader = VNextCatalogFacade(settings.core)
+            reader = owned_reader
+        try:
+            if owned_reader is not None:
+                _LOGGER.info(
+                    "Database readiness confirmed; full audit was not performed"
+                )
+            application.state.catalog_reader = reader
+            yield
+        finally:
+            if owned_reader is not None:
+                reader = None
+                owned_reader.close()
 
     application = FastAPI(
         title=settings.title,
