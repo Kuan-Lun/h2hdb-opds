@@ -59,16 +59,17 @@ async def _client(
     base_url: str = _PUBLIC_ORIGIN,
 ) -> AsyncIterator[AsyncClient]:
     target: ASGIApp = application
-    if deployment == "stripped":
-        target = _PrefixStrippingProxy(application)
-    elif deployment in {"unnamed_mount", "named_mount"}:
-        outer = FastAPI()
-        outer.mount(
-            "/library",
-            application,
-            name="library" if deployment == "named_mount" else None,
-        )
-        target = outer
+    match deployment:
+        case "stripped":
+            target = _PrefixStrippingProxy(application)
+        case "unnamed_mount" | "named_mount":
+            outer = FastAPI()
+            outer.mount(
+                "/library",
+                application,
+                name="library" if deployment == "named_mount" else None,
+            )
+            target = outer
     root_path = "/library" if deployment == "root_path" else ""
     async with application.router.lifespan_context(application):
         async with AsyncClient(
@@ -79,13 +80,18 @@ async def _client(
 
 
 def _json_links(value: object) -> list[tuple[str, str]]:
-    if isinstance(value, list):
-        return [link for child in value for link in _json_links(child)]
-    if not isinstance(value, dict):
-        return []
-    href = value.get("href")
-    found = [(str(value.get("rel", "")), href)] if isinstance(href, str) else []
-    return [*found, *(link for child in value.values() for link in _json_links(child))]
+    match value:
+        case list():
+            return [link for child in value for link in _json_links(child)]
+        case dict():
+            href = value.get("href")
+            found = [(str(value.get("rel", "")), href)] if isinstance(href, str) else []
+            return [
+                *found,
+                *(link for child in value.values() for link in _json_links(child)),
+            ]
+        case _:
+            return []
 
 
 def _links(response: Response) -> list[tuple[str, str]]:

@@ -598,38 +598,39 @@ def browse_feed_document(
     _text_element(
         feed, "itemsPerPage", str(page.limit), namespace=OPEN_SEARCH_NAMESPACE
     )
-    if isinstance(page, CatalogTagPage):
-        for value, publication in zip(
-            page.values, selection.directory_publications, strict=True
-        ):
-            href = browse_url(
-                request,
-                config,
-                BrowseTarget(selection.target.category, value.value),
-                endpoint="opds12_tag_browse",
-                revision=revision,
-                limit=page.limit,
-            )
-            entry = _navigation_entry(
-                title=value.value or "(empty tag)",
-                identifier=href,
-                description=f"Browse publications tagged {value.value}.",
-                updated=page.revision.published_at,
-                href=href,
-            )
-            _navigation_thumbnail(entry, request, config, publication, revision)
-            feed.append(entry)
-    else:
-        for publication in page.publications:
-            feed.append(
-                _publication_entry(
-                    publication,
-                    request=request,
-                    config=config,
+    match page:
+        case CatalogTagPage():
+            for value, publication in zip(
+                page.values, selection.directory_publications, strict=True
+            ):
+                href = browse_url(
+                    request,
+                    config,
+                    BrowseTarget(selection.target.category, value.value),
+                    endpoint="opds12_tag_browse",
                     revision=revision,
-                    acquisition_endpoint="opds12_acquire_artifact",
+                    limit=page.limit,
                 )
-            )
+                entry = _navigation_entry(
+                    title=value.value or "(empty tag)",
+                    identifier=href,
+                    description=f"Browse publications tagged {value.value}.",
+                    updated=page.revision.published_at,
+                    href=href,
+                )
+                _navigation_thumbnail(entry, request, config, publication, revision)
+                feed.append(entry)
+        case _:
+            for publication in page.publications:
+                feed.append(
+                    _publication_entry(
+                        publication,
+                        request=request,
+                        config=config,
+                        revision=revision,
+                        acquisition_endpoint="opds12_acquire_artifact",
+                    )
+                )
     return _serialized(feed)
 
 

@@ -702,28 +702,29 @@ async def test_invalid_opds_presentation_shape_fails_closed(
     path: str,
 ) -> None:
     publication = replace(catalog_fixture.publications[0])
-    if corruption == "overflow":
-        object.__setattr__(publication, "page_count", 4097)
-    elif corruption == "missing-cover":
-        object.__setattr__(publication, "cover", None)
-    elif corruption == "missing-thumbnail":
-        object.__setattr__(publication, "thumbnail", None)
-    elif corruption == "zero-with-images":
-        object.__setattr__(publication, "page_count", 0)
-    elif corruption == "png-cover":
-        assert publication.cover is not None
-        object.__setattr__(
-            publication,
-            "cover",
-            replace(publication.cover, media_type="image/png"),
-        )
-    else:
-        assert publication.thumbnail is not None
-        object.__setattr__(
-            publication,
-            "thumbnail",
-            replace(publication.thumbnail, media_type="image/png"),
-        )
+    match corruption:
+        case "overflow":
+            object.__setattr__(publication, "page_count", 4097)
+        case "missing-cover":
+            object.__setattr__(publication, "cover", None)
+        case "missing-thumbnail":
+            object.__setattr__(publication, "thumbnail", None)
+        case "zero-with-images":
+            object.__setattr__(publication, "page_count", 0)
+        case "png-cover":
+            assert publication.cover is not None
+            object.__setattr__(
+                publication,
+                "cover",
+                replace(publication.cover, media_type="image/png"),
+            )
+        case _:
+            assert publication.thumbnail is not None
+            object.__setattr__(
+                publication,
+                "thumbnail",
+                replace(publication.thumbnail, media_type="image/png"),
+            )
     app = create_app(opds_config, FakeCatalog((publication,)))
 
     async with app_client(app) as client:

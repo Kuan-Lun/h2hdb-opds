@@ -435,14 +435,15 @@ def test_pse_namespace_is_allowlisted_across_the_complete_document(
 ) -> None:
     document = _valid_pse_entry()
     root = document.getroot()
-    if mutation == "entry-attribute":
-        root.set(f"{{{PSE_NAMESPACE}}}lastRead", "1")
-    elif mutation == "title-attribute":
-        title = root.find("{http://www.w3.org/2005/Atom}title")
-        assert title is not None
-        title.set(f"{{{PSE_NAMESPACE}}}maxWidth", "1")
-    else:
-        etree.SubElement(root, f"{{{PSE_NAMESPACE}}}unsupported")
+    match mutation:
+        case "entry-attribute":
+            root.set(f"{{{PSE_NAMESPACE}}}lastRead", "1")
+        case "title-attribute":
+            title = root.find("{http://www.w3.org/2005/Atom}title")
+            assert title is not None
+            title.set(f"{{{PSE_NAMESPACE}}}maxWidth", "1")
+        case _:
+            etree.SubElement(root, f"{{{PSE_NAMESPACE}}}unsupported")
 
     with pytest.raises(OPDS12ValidationError, match="OPDS-PSE"):
         validate_document(document, _atom_validator())

@@ -177,21 +177,24 @@ def parse_search_query(value: str) -> CatalogDiscoveryQuery:
             words.append(_value(token))
             continue
         field, raw = parts
-        if field == "title":
-            titles.append(_value(raw))
-        elif field == "tag":
-            raise ValueError("tag: search syntax is not supported; use namespace:value")
-        elif field in _SCALAR_FIELDS:
-            if field in scalars:
-                raise ValueError(f"{field} may only appear once")
-            scalars[field] = _value(raw)
-        else:
-            subjects.append(
-                CatalogSubjectFilter(
-                    namespace=_value(field, allow_whitespace=True),
-                    value=_value(raw, allow_whitespace=True),
+        match field:
+            case "title":
+                titles.append(_value(raw))
+            case "tag":
+                raise ValueError(
+                    "tag: search syntax is not supported; use namespace:value"
                 )
-            )
+            case _ if field in _SCALAR_FIELDS:
+                if field in scalars:
+                    raise ValueError(f"{field} may only appear once")
+                scalars[field] = _value(raw)
+            case _:
+                subjects.append(
+                    CatalogSubjectFilter(
+                        namespace=_value(field, allow_whitespace=True),
+                        value=_value(raw, allow_whitespace=True),
+                    )
+                )
     query = CatalogDiscoveryQuery(
         search=" ".join(" ".join(words).split()) or None,
         title=" ".join(" ".join(titles).split()) or None,

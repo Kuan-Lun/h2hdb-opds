@@ -659,19 +659,20 @@ class CatalogService:
                 raise CatalogIntegrityError("tag browse returned the wrong page family")
             if page.revision != selected or page.limit != selected_limit:
                 raise CatalogIntegrityError("tag browse page differs from its request")
-            if isinstance(page, CatalogTagPage):
-                if (
-                    page.namespace != target.namespace
-                    or len(page.values) > selected_limit
-                ):
-                    raise CatalogIntegrityError("tag directory violates its bounds")
-            else:
-                if len(page.publications) > selected_limit:
-                    raise CatalogIntegrityError(
-                        "tag publication page exceeds its limit"
-                    )
-                for publication in page.publications:
-                    self._validate_publication(publication)
+            match page:
+                case CatalogTagPage():
+                    if (
+                        page.namespace != target.namespace
+                        or len(page.values) > selected_limit
+                    ):
+                        raise CatalogIntegrityError("tag directory violates its bounds")
+                case _:
+                    if len(page.publications) > selected_limit:
+                        raise CatalogIntegrityError(
+                            "tag publication page exceeds its limit"
+                        )
+                    for publication in page.publications:
+                        self._validate_publication(publication)
             return BrowsePageSelection(
                 target=target,
                 page=page,
