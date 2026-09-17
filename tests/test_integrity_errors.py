@@ -36,12 +36,13 @@ async def test_discovery_integrity_failure_never_recovers_after_head_advance(
     def corrupt_bundle(**kwargs: Any) -> CatalogDiscoveryBundle:
         bundle = original(**kwargs)
         wrong_revision = replace(bundle.page.revision, revision=6)
-        if corruption == "page-revision":
-            object.__setattr__(bundle.page, "revision", wrong_revision)
-        elif corruption == "facet-revision":
-            object.__setattr__(bundle.facets[0], "revision", wrong_revision)
-        else:
-            object.__setattr__(bundle, "facets", tuple(reversed(bundle.facets)))
+        match corruption:
+            case "page-revision":
+                object.__setattr__(bundle.page, "revision", wrong_revision)
+            case "facet-revision":
+                object.__setattr__(bundle.facets[0], "revision", wrong_revision)
+            case _:
+                object.__setattr__(bundle, "facets", tuple(reversed(bundle.facets)))
         catalog.revision = replace(catalog.revision, revision=8)
         return bundle
 
@@ -126,32 +127,35 @@ async def test_coordination_faults_are_not_reported_as_activation(
     app = create_app(opds_config, catalog_fixture.catalog)
     lock_path = opds_config.coordination_root / "publication.lock"
     async with app_client(app) as client:
-        if fault == "missing-lock":
-            lock_path.unlink()
-        elif fault == "nonregular-lock":
-            lock_path.unlink()
-            lock_path.mkdir()
-        elif fault == "open-denied":
+        match fault:
+            case "missing-lock":
+                lock_path.unlink()
+            case "nonregular-lock":
+                lock_path.unlink()
+                lock_path.mkdir()
+            case "open-denied":
 
-            def denied_open(_descriptor: int) -> int:
-                raise PermissionError(errno.EACCES, "permission denied")
-
-            monkeypatch.setattr(library, "_open_publication_lock", denied_open)
-        elif fault == "flock-denied":
-
-            def denied_flock(_descriptor: int, _operation: int) -> None:
-                raise PermissionError(errno.EACCES, "permission denied")
-
-            monkeypatch.setattr(fcntl, "flock", denied_flock)
-        else:
-            original_stat = os.stat
-
-            def denied_marker(path: Any, *args: Any, **kwargs: Any) -> os.stat_result:
-                if path == "ACTIVATING":
+                def denied_open(_descriptor: int) -> int:
                     raise PermissionError(errno.EACCES, "permission denied")
-                return original_stat(path, *args, **kwargs)
 
-            monkeypatch.setattr(os, "stat", denied_marker)
+                monkeypatch.setattr(library, "_open_publication_lock", denied_open)
+            case "flock-denied":
+
+                def denied_flock(_descriptor: int, _operation: int) -> None:
+                    raise PermissionError(errno.EACCES, "permission denied")
+
+                monkeypatch.setattr(fcntl, "flock", denied_flock)
+            case _:
+                original_stat = os.stat
+
+                def denied_marker(
+                    path: Any, *args: Any, **kwargs: Any
+                ) -> os.stat_result:
+                    if path == "ACTIVATING":
+                        raise PermissionError(errno.EACCES, "permission denied")
+                    return original_stat(path, *args, **kwargs)
+
+                monkeypatch.setattr(os, "stat", denied_marker)
         response = await client.get("/opds/v2/publications", params={"revision": 6})
         health = await client.get("/health")
     assert response.status_code == 500

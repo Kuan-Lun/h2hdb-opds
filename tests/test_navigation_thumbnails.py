@@ -409,37 +409,39 @@ def test_navigation_rejects_contradictory_tag_preview_bundles(
 
     def corrupted(**kwargs: Any) -> CatalogTagBundle:
         bundle = original(**kwargs)
-        if corruption == "revision":
-            object.__setattr__(
-                bundle,
-                "page",
-                replace(
-                    bundle.page,
-                    revision=replace(bundle.page.revision, revision=8),
-                    next_cursor=None,
-                ),
-            )
-        elif corruption == "namespace":
-            object.__setattr__(
-                bundle,
-                "page",
-                replace(bundle.page, namespace="wrong", next_cursor=None),
-            )
-        elif corruption == "cardinality":
-            object.__setattr__(bundle, "publications", ())
-        else:
-            first = bundle.publications[0]
-            if corruption == "membership":
-                first = replace(first, subjects=())
-            elif corruption == "uploaded":
-                first = replace(
-                    first, published_at=first.published_at - timedelta(days=1)
+        match corruption:
+            case "revision":
+                object.__setattr__(
+                    bundle,
+                    "page",
+                    replace(
+                        bundle.page,
+                        revision=replace(bundle.page.revision, revision=8),
+                        next_cursor=None,
+                    ),
                 )
-            else:
-                first = replace(first, artifacts=())
-            object.__setattr__(
-                bundle, "publications", (first, *bundle.publications[1:])
-            )
+            case "namespace":
+                object.__setattr__(
+                    bundle,
+                    "page",
+                    replace(bundle.page, namespace="wrong", next_cursor=None),
+                )
+            case "cardinality":
+                object.__setattr__(bundle, "publications", ())
+            case _:
+                first = bundle.publications[0]
+                match corruption:
+                    case "membership":
+                        first = replace(first, subjects=())
+                    case "uploaded":
+                        first = replace(
+                            first, published_at=first.published_at - timedelta(days=1)
+                        )
+                    case _:
+                        first = replace(first, artifacts=())
+                object.__setattr__(
+                    bundle, "publications", (first, *bundle.publications[1:])
+                )
         return bundle
 
     monkeypatch.setattr(catalog, "list_tag_values_with_publications", corrupted)

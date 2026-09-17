@@ -588,21 +588,22 @@ class FakeCatalog:
             order=order,
             publications=publications,
         )
-        if self.recent_corruption == "order":
-            replacement = (
-                CatalogRecentOrder.DOWNLOADED
-                if order is CatalogRecentOrder.UPLOADED
-                else CatalogRecentOrder.UPLOADED
-            )
-            object.__setattr__(window, "order", replacement)
-        elif self.recent_corruption == "oversized":
-            object.__setattr__(window, "publications", publications * 43)
-        elif self.recent_corruption == "artifactless":
-            object.__setattr__(
-                window,
-                "publications",
-                (replace(publications[0], artifacts=()), *publications[1:]),
-            )
+        match self.recent_corruption:
+            case "order":
+                replacement = (
+                    CatalogRecentOrder.DOWNLOADED
+                    if order is CatalogRecentOrder.UPLOADED
+                    else CatalogRecentOrder.UPLOADED
+                )
+                object.__setattr__(window, "order", replacement)
+            case "oversized":
+                object.__setattr__(window, "publications", publications * 43)
+            case "artifactless":
+                object.__setattr__(
+                    window,
+                    "publications",
+                    (replace(publications[0], artifacts=()), *publications[1:]),
+                )
         return window
 
     def get_publication_presentation(

@@ -809,33 +809,34 @@ def browse_document(
         },
         "links": links,
     }
-    if isinstance(page, CatalogTagPage):
-        document["navigation"] = [
-            {
-                "title": value.value or "(empty tag)",
-                "href": browse_url(
-                    request,
-                    config,
-                    BrowseTarget(selection.target.category, value.value),
-                    endpoint="tag_browse",
-                    revision=revision,
-                    limit=page.limit,
-                ),
-                "type": OPDS_FEED_MEDIA_TYPE,
-                "rel": "subsection",
-                **_navigation_image(request, config, publication, revision),
-            }
-            for value, publication in zip(
-                page.values, selection.directory_publications, strict=True
-            )
-        ] or _empty_navigation(request, config, revision)
-    elif page.publications:
-        document["publications"] = [
-            publication_document(request, config, publication, revision)
-            for publication in page.publications
-        ]
-    else:
-        document["navigation"] = _empty_navigation(request, config, revision)
+    match page:
+        case CatalogTagPage():
+            document["navigation"] = [
+                {
+                    "title": value.value or "(empty tag)",
+                    "href": browse_url(
+                        request,
+                        config,
+                        BrowseTarget(selection.target.category, value.value),
+                        endpoint="tag_browse",
+                        revision=revision,
+                        limit=page.limit,
+                    ),
+                    "type": OPDS_FEED_MEDIA_TYPE,
+                    "rel": "subsection",
+                    **_navigation_image(request, config, publication, revision),
+                }
+                for value, publication in zip(
+                    page.values, selection.directory_publications, strict=True
+                )
+            ] or _empty_navigation(request, config, revision)
+        case _ if page.publications:
+            document["publications"] = [
+                publication_document(request, config, publication, revision)
+                for publication in page.publications
+            ]
+        case _:
+            document["navigation"] = _empty_navigation(request, config, revision)
     return document
 
 
