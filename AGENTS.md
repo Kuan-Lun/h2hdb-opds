@@ -275,16 +275,18 @@ production startup 使用公開 `VNextDatabaseAdminFacade.check_readiness()` 驗
   namespace 使用 `"tag":value`。HTTP `tag`/`tag_namespace` pair 維持支援。
   Malformed syntax、absent、blank 或無有效條件的 query 回 422；合法 filter-only query
   不要求 free-text lexeme。
-- DSL quoted components 接受成對 ASCII `"..."` 或 U+201C/U+201D `“...”`，namespace、
-  subject value、title、free text 與 scalar fields 皆適用，不加英文限定。
-  `female:“mind control”` 等同 `female:"mind control"`。只辨認 quote delimiters，
-  不得全域 normalize 或 replace subject bytes；ASCII quotes 內 literal curly quotes
-  必須原樣保留。兩種 quotes 共用 JSON escapes，smart group 中 `\u201d` 表達 literal
-  closing curly quote。未配對、反向或混合 quote delimiters 回 422；single quotes
-  與中文書名號不提供 grouping syntax，不新增其他符號或 Boolean operators。
-  移除裸 curly quotes 原為普通字元的解讀路徑；literal curly values 使用 ASCII quoted
-  components 或 JSON escapes。Canonical links 只使用 ASCII quote delimiters，
-  不得改變 exact subject namespace/value。
+- DSL quoted components 接受成對 ASCII `"..."`、U+201C/U+201D `“...”` 或
+  U+201D/U+201D `”...”`，namespace、subject value、title、free text 與 scalar fields
+  皆適用，不加英文限定。`female:“mind control”` 與 `female:”mind control”` 都等同
+  `female:"mind control"`；後者是 smart punctuation 在冒號等非空白字元後把 `"`
+  替換成 closing curly quote 的結果。只辨認 quote delimiters，不得全域 normalize 或
+  replace subject bytes；ASCII quotes 內 literal curly quotes 必須原樣保留。curly 與
+  ASCII quotes 共用 JSON escapes，smart group 中 `\u201d` 表達 literal closing curly
+  quote。未配對、反向 `”...“`、同開引號 `“...“` 或 ASCII 與 curly 混合的 quote
+  delimiters 回 422；single quotes 與中文書名號不提供 grouping syntax，不新增其他
+  符號或 Boolean operators。裸 curly quote 一律是 delimiter，不是普通字元；literal
+  curly values 使用 ASCII quoted components 或 JSON escapes。Canonical links 只使用
+  ASCII quote delimiters，不得改變 exact subject namespace/value。
 - 多 tag 使用 `CatalogDiscoveryQuery.subjects` tuple，全部 AND；HTTP 單 tag pair
   與 DSL tags 合併、exact 去重，不得保留 singular `subject` alias。Scalar field 不得
   重複；多個 title clause 合併 AND。Dates 使用 UTC calendar days，inclusive 上界日期

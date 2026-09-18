@@ -20,7 +20,9 @@ _INTEGER = re.compile(r"(?:0|[1-9][0-9]*)\Z")
 _DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
 _SCALAR_FIELDS = frozenset({"gid", "uploaded", "downloaded", "pages"})
 _RESERVED_NAMESPACES = _SCALAR_FIELDS | {"title", "tag"}
-_QUOTE_PAIRS = {'"': '"', "“": "”"}
+# Smart punctuation emits U+201D as the opening quote after a non-space
+# character such as the field colon, so both curly openers close with U+201D.
+_QUOTE_PAIRS = {'"': '"', "“": "”", "”": "”"}
 # Six bytes per JSON-escaped byte covers 16 x (128-byte namespace + 1024-byte
 # value), two 1024-byte text fields, scalar fields and all DSL delimiters.
 SEARCH_QUERY_MAXIMUM_BYTES = 128 * 1024
@@ -54,8 +56,6 @@ def _tokens(value: str) -> list[str]:
         elif character in _QUOTE_PAIRS:
             token.append('"')
             closing_quote = _QUOTE_PAIRS[character]
-        elif character == "”":
-            raise ValueError("search query has an unexpected closing quote")
         elif character.isspace():
             if token:
                 tokens.append("".join(token))

@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-17T14:28:36+00:00",
+  "checked_at": "2026-09-18T11:26:15+00:00",
   "manifest_sha256": "cae3e7e6e859b2ecc02dee01d726bb736c0066ac8391f2653f056527c784e863",
   "node": [
     {
@@ -21,12 +21,12 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.22.1",
+  "project_version": "0.22.2",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
       "group": "build",
-      "latest": "1.32.0",
+      "latest": "1.32.3",
       "latest_satisfies": true,
       "name": "hatchling",
       "python_3_14": true,
@@ -44,7 +44,7 @@
     {
       "declared": "h2hdb>=0.39.0,<0.40.0",
       "group": "runtime",
-      "latest": "0.39.7",
+      "latest": "0.39.10",
       "latest_satisfies": true,
       "name": "h2hdb",
       "python_3_14": true,
@@ -80,7 +80,7 @@
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
       "group": "optional:dev",
-      "latest": "1.32.0",
+      "latest": "1.32.3",
       "latest_satisfies": true,
       "name": "hatchling",
       "python_3_14": true,
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all 15 Python and 3 Node direct dependency entries, including registry latest candidates outside declared upper bounds. Compared the preceding committed receipt: external candidates are unchanged except Ruff 0.16.8, and coordinated core h2hdb is now published as 0.39.7. No dependency constraints changed. Reviewed https://github.com/astral-sh/ruff/releases/tag/0.16.8: type-analysis and pyupgrade fixes, lazy-import support, regex diagnostics and formatter warning changes; current Python 3.14 settings pass complete repository Ruff lint/format and strict mypy with the new Ruff installed. Reviewed core local release history through merge 656c6fe: bounded GID preparation, marker canonical reads, cleanup lease recovery, telemetry and exact-key cleanup batching preserve the public facade/domain and epoch-3/schema-7 consumer contract. Installed public registry h2hdb 0.39.7 and Ruff 0.16.8 into the repository-local environment through the normal uv resolver. All 38 installed packages pass uv pip check; all direct Node packages match discovered latest candidates and npm ls succeeds. 72 focused tests passed using these latest candidates. The broader syntax-refactor focused tests previously passed against the prior compatible core wheel; final complete merge gates and isolated cross-repository deployment acceptance are reported separately. The patch release changes value/shape dispatch syntax; public APIs, data formats, byte output, safety guards and ordering of effects are unchanged.",
+    "note": "Reviewed all 15 Python and 3 Node direct dependency entries against the 0.22.1 receipt. No dependency constraints changed (manifest hash unchanged). Two registry candidates moved: hatchling 1.32.0 -> 1.32.3 (build and optional:dev) and coordinated core h2hdb 0.39.7 -> 0.39.10 (runtime); every other candidate is unchanged and still satisfies its declared bounds. hatchling 1.32.3 (2026-09-17) only preserves the core-metadata version string as written for stylized CalVer versions; this project uses PEP 440 canonical 0.22.2, so wheel metadata is unaffected. Reviewed core history 0.39.7..0.39.10 (merges 656c6fe, 8e23ced, 713b950, fe32ba7, 3cfba6c): pattern-matching refactors, a new CurrentOnlyCleanupTerminalState ingest-side enum, ingest observability and cleanup performance work; the CatalogReader discovery/facet/recent/tag contracts, domain values and epoch-3/schema-7 consumer surface that h2hdb-opds uses are unchanged. Installed h2hdb 0.39.10 and hatchling 1.32.3 into the repository-local environment through uv; all 38 installed packages pass uv pip check, and the bounded non-deep pytest profile (scripts/run-checks.py pytest with H2HDB_CORE_REPOSITORY set to a 0.39.10 core checkout) passed 870 tests in 54s. The 0.22.2 patch release only widens the search DSL quote grammar to accept U+201D as an opening delimiter; public APIs, data formats and dependency manifests are unchanged.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
