@@ -132,11 +132,14 @@ def test_search_literal_and_range_boundaries(
     assert parse_search_query(rendered) == expected
 
 
-def test_smart_quotes_group_every_field_and_render_ascii_quotes() -> None:
+@pytest.mark.parametrize("opening", ("“", "”"))
+def test_smart_quotes_group_every_field_and_render_ascii_quotes(opening: str) -> None:
     query = parse_search_query(
-        "“不知火 花” title:“Cobalt Gallery” gid:“1834943” "
-        "female:“mind control” “名:稱”:“a  b” “title”:“source tag” "
-        "uploaded:“2026-09-01..2026-09-05” downloaded:“2026-09-06” pages:“40..200”"
+        f"{opening}不知火 花” title:{opening}Cobalt Gallery” gid:{opening}1834943” "
+        f"female:{opening}mind control” {opening}名:稱”:{opening}a  b” "
+        f"{opening}title”:{opening}source tag” "
+        f"uploaded:{opening}2026-09-01..2026-09-05” downloaded:{opening}2026-09-06” "
+        f"pages:{opening}40..200”"
     )
     assert query == CatalogDiscoveryQuery(
         search="不知火 花",
@@ -168,10 +171,20 @@ def test_smart_quotes_group_every_field_and_render_ascii_quotes() -> None:
     (
         ("“female:mind control”", CatalogDiscoveryQuery(search="female:mind control")),
         (
-            '“female”:"mind control" "female":“mind control”',
+            "female:”mind control”",
             CatalogDiscoveryQuery(
                 subjects=(CatalogSubjectFilter("female", "mind control"),)
             ),
+        ),
+        (
+            '“female”:"mind control" "female":“mind control” ”female”:”mind control”',
+            CatalogDiscoveryQuery(
+                subjects=(CatalogSubjectFilter("female", "mind control"),)
+            ),
+        ),
+        (
+            "”mind control” title:”Cobalt Gallery”",
+            CatalogDiscoveryQuery(search="mind control", title="Cobalt Gallery"),
         ),
         (
             "“ ”:“  ”",
@@ -190,6 +203,12 @@ def test_smart_quotes_group_every_field_and_render_ascii_quotes() -> None:
         (
             r"“\u201cname\u201d”:“\u201cmind\u201d”",
             CatalogDiscoveryQuery(subjects=(CatalogSubjectFilter("“name”", "“mind”"),)),
+        ),
+        (
+            r"female:”a\"b\\c\u201d”",
+            CatalogDiscoveryQuery(
+                subjects=(CatalogSubjectFilter("female", 'a"b\\c”'),)
+            ),
         ),
     ),
 )
@@ -220,9 +239,14 @@ def test_literal_smart_quotes_round_trip_without_data_changes() -> None:
     "text",
     (
         "female:“mind control",
+        "female:”mind control",
         "female:”mind control“",
+        "female:“mind control“",
         'female:“mind control"',
         'female:"mind control”',
+        'female:”mind control"',
+        "female:”mind control””",
+        "female”mind control”",
         "female:mind”",
         "female:mi“nd”",
         "female:“mind”suffix",

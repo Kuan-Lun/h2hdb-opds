@@ -120,9 +120,12 @@ async def test_search_http_rejects_malformed_dsl_before_catalog_reads(
             "pages:200..40",
             'artist:"bad',
             "female:“mind control",
+            "female:”mind control",
             "female:”mind control“",
             'female:“mind control"',
             'female:"mind control”',
+            'female:”mind control"',
+            "female:”mind control””",
             r"female:“bad\”escape”",
         ):
             response = await client.get(
@@ -134,8 +137,9 @@ async def test_search_http_rejects_malformed_dsl_before_catalog_reads(
     assert catalog_fixture.catalog.revision_lookups == []
 
 
+@pytest.mark.parametrize("text", ("female:“mind control”", "female:”mind control”"))
 async def test_smart_quoted_subject_matches_exact_values_and_replays_canonical_links(
-    catalog_fixture: CatalogFixture, opds_config: OPDSConfig, version: str
+    catalog_fixture: CatalogFixture, opds_config: OPDSConfig, version: str, text: str
 ) -> None:
     publications = tuple(
         replace(
@@ -156,9 +160,7 @@ async def test_smart_quoted_subject_matches_exact_values_and_replays_canonical_l
     app = create_app(config, catalog)
     parameter = _search_parameter(version)
     async with app_client(app) as client:
-        first = await client.get(
-            f"/opds/{version}/search", params={parameter: "female:“mind control”"}
-        )
+        first = await client.get(f"/opds/{version}/search", params={parameter: text})
         assert _identifiers(first) == (publications[0].publication_id,)
         assert catalog.list_calls[0][0].subjects == (
             CatalogSubjectFilter("female", "mind control"),
