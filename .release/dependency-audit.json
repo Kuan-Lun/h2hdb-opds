@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-18T11:26:15+00:00",
-  "manifest_sha256": "cae3e7e6e859b2ecc02dee01d726bb736c0066ac8391f2653f056527c784e863",
+  "checked_at": "2026-09-23T12:51:56+00:00",
+  "manifest_sha256": "52ebef8493ab7050077c1c5e1ed3a1e23f0edd0c9960005f35ee0348978d0e05",
   "node": [
     {
       "declared": ">=8.20.0 <9.0.0",
@@ -16,17 +16,17 @@
     },
     {
       "declared": ">=0.23.2",
-      "latest": "0.23.2",
+      "latest": "0.23.3",
       "latest_satisfies": true,
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.22.2",
+  "project_version": "0.23.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
       "group": "build",
-      "latest": "1.32.3",
+      "latest": "1.32.4",
       "latest_satisfies": true,
       "name": "hatchling",
       "python_3_14": true,
@@ -42,10 +42,10 @@
       "url": "https://pypi.org/project/fastapi/"
     },
     {
-      "declared": "h2hdb>=0.39.0,<0.40.0",
+      "declared": "h2hdb>=0.41.1,<0.42.0",
       "group": "runtime",
-      "latest": "0.39.10",
-      "latest_satisfies": true,
+      "latest": "0.41.0",
+      "latest_satisfies": false,
       "name": "h2hdb",
       "python_3_14": true,
       "url": "https://pypi.org/project/h2hdb/"
@@ -80,7 +80,7 @@
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
       "group": "optional:dev",
-      "latest": "1.32.3",
+      "latest": "1.32.4",
       "latest_satisfies": true,
       "name": "hatchling",
       "python_3_14": true,
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all 15 Python and 3 Node direct dependency entries against the 0.22.1 receipt. No dependency constraints changed (manifest hash unchanged). Two registry candidates moved: hatchling 1.32.0 -> 1.32.3 (build and optional:dev) and coordinated core h2hdb 0.39.7 -> 0.39.10 (runtime); every other candidate is unchanged and still satisfies its declared bounds. hatchling 1.32.3 (2026-09-17) only preserves the core-metadata version string as written for stylized CalVer versions; this project uses PEP 440 canonical 0.22.2, so wheel metadata is unaffected. Reviewed core history 0.39.7..0.39.10 (merges 656c6fe, 8e23ced, 713b950, fe32ba7, 3cfba6c): pattern-matching refactors, a new CurrentOnlyCleanupTerminalState ingest-side enum, ingest observability and cleanup performance work; the CatalogReader discovery/facet/recent/tag contracts, domain values and epoch-3/schema-7 consumer surface that h2hdb-opds uses are unchanged. Installed h2hdb 0.39.10 and hatchling 1.32.3 into the repository-local environment through uv; all 38 installed packages pass uv pip check, and the bounded non-deep pytest profile (scripts/run-checks.py pytest with H2HDB_CORE_REPOSITORY set to a 0.39.10 core checkout) passed 870 tests in 54s. The 0.22.2 patch release only widens the search DSL quote grammar to accept U+201D as an opening delimiter; public APIs, data formats and dependency manifests are unchanged.",
+    "note": "Reviewed all 15 Python and 3 Node direct dependency entries against the 0.22.2 receipt, including registry candidates outside bounds. Core is deliberately raised to >=0.41.1,<0.42.0: installed explicit Core 0.41.1 wheel (sha256 ba038f770b8910a6211565d5c1b30cb5cd78e5d324e7893e568d99dab33cc9fd); registry latest 0.41.0 is excluded because it rejects legal interrupted observation cleanup during READY audit. Reviewed Core public ports.py and vnext_facade.py from release commit c90044e (0.39.10): no catalog reader/facade signature changes; domain changes are ingest source staging ownership, outside OPDS reads. Exact schema8 admission is validated by real SQLite startup, previous/BUILDING rejection without writes, and the 165-publication manifest-bound HTTP fixture (16 benchmark integration tests passed, including unchanged discovery/search/facet response SHA256 oracles). Existing HTTP/acquisition formats and managed-filesystem-v2 storage remain unchanged. Remaining moved candidates: hatchling 1.32.3->1.32.4 restores BuildHookInterface plugin generics and trims CalVer metadata whitespace (https://hatch.pypa.io/dev/history/hatchling/); no custom build hooks or CalVer are used. markdownlint-cli2 0.23.2->0.23.3 updates dependencies; the installed candidate uses markdownlint 0.41.1 (upstream CHANGELOG.md and https://github.com/DavidAnson/markdownlint-cli2/releases/tag/v0.23.3). Both candidates installed and repository Ruff/format/strict mypy/Markdown gates pass; other direct registry candidates unchanged and installed at reviewed latest versions. Full release gate separately validates bounded tests, schema closures, sdist/wheel and installed-wheel dependency contract.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
