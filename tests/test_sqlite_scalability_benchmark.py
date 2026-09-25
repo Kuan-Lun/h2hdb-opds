@@ -233,11 +233,11 @@ def test_built_wheel_accepts_the_core_used_by_required_sqlite_integration(
         )
     # Schema 8 requires the interruption-safe READY validation in Core 0.41.1.
     # Earlier releases and the next unreviewed lane remain outside the candidates.
-    for supported_core in ("0.41.1",):
+    for supported_core in ("0.41.1", "0.41.2", "0.42.0"):
         assert required_core[0].specifier.contains(supported_core), (
             f"Built wheel excludes supported core {supported_core}"
         )
-    for unsupported_core in ("0.39.10", "0.40.0", "0.41.0", "0.42.0"):
+    for unsupported_core in ("0.39.10", "0.40.0", "0.41.0", "0.43.0"):
         assert not required_core[0].specifier.contains(unsupported_core), (
             f"Built wheel admits unreviewed core {unsupported_core}"
         )

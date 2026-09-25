@@ -139,8 +139,9 @@ ASCII 引號與彎引號不能混搭，`”...“` 反向配對無效，
 ### 準備環境與書庫
 
 需要 Python 3.14 以上版本，以及支援 POSIX 檔案鎖的環境，例如 Linux 或 macOS。
-此版本使用 `h2hdb>=0.41.1,<0.42.0`，對應 epoch 3／schema version 8。
-Core 0.41.1 修正清理中斷時的完整稽核誤判；HTTP、catalog 與 CBZ 格式不變。
+此版本使用 `h2hdb>=0.41.1,<0.43.0`，對應 epoch 3／schema version 8。
+Core 0.41.1 修正清理中斷時的完整稽核誤判；Core 0.42 保留相同的
+catalog API 與 schema 8。HTTP、catalog 與 CBZ 格式不變。
 啟動前，請先由 H2HDB 與 ingest 完成初始化及書庫發佈，準備：
 
 - 已完成初始化、狀態為 `READY` 的相容資料庫。
@@ -153,8 +154,9 @@ Core 0.41.1 修正清理中斷時的完整稽核誤判；HTTP、catalog 與 CBZ 
 
 既有 exact schema 7 資料庫需先停止所有 consumers，由管理者依
 [H2HDB 的升級說明](https://github.com/Kuan-Lun/h2hdb#readme)
-使用 Core 0.41.1 的離線 `upgrade-source-collection-schema.py` 轉至 schema 8，
+使用歷史 Core 0.41.2 的離線 `upgrade-source-collection-schema.py` 轉至 schema 8，
 保留 catalog、來源觀測與 CBZ，不需清空資料庫或重新封裝。
+Core 0.42 已移除此一次性工具，需依 Core 說明使用歷史 checkout 或既有升級包。
 Schema 6 須先使用 Core 0.40.0 的 `upgrade-audit-schema.py` 轉至 schema 7。
 升級完成後，須確認每個應用映像中的 Core 與 consumer 版本都相容，再啟動服務；
 一次性升級容器不會更新應用映像。其他舊版或不相符資料庫由 Core 的管理工具拒絕，
