@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-23T12:51:56+00:00",
-  "manifest_sha256": "52ebef8493ab7050077c1c5e1ed3a1e23f0edd0c9960005f35ee0348978d0e05",
+  "checked_at": "2026-09-25T08:46:52+00:00",
+  "manifest_sha256": "67fac0f0dca4a96f150a3245ad6a96e34b663992a96d8b28e9f9a0004249050c",
   "node": [
     {
       "declared": ">=8.20.0 <9.0.0",
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.23.0",
+  "project_version": "0.23.1",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -42,10 +42,10 @@
       "url": "https://pypi.org/project/fastapi/"
     },
     {
-      "declared": "h2hdb>=0.41.1,<0.42.0",
+      "declared": "h2hdb>=0.41.1,<0.43.0",
       "group": "runtime",
-      "latest": "0.41.0",
-      "latest_satisfies": false,
+      "latest": "0.42.0",
+      "latest_satisfies": true,
       "name": "h2hdb",
       "python_3_14": true,
       "url": "https://pypi.org/project/h2hdb/"
@@ -62,7 +62,7 @@
     {
       "declared": "uvicorn>=0.52.4,<1.0.0",
       "group": "runtime",
-      "latest": "0.53.0",
+      "latest": "0.54.0",
       "latest_satisfies": true,
       "name": "uvicorn",
       "python_3_14": true,
@@ -152,7 +152,7 @@
     {
       "declared": "ruff>=0.16.4",
       "group": "optional:dev",
-      "latest": "0.16.8",
+      "latest": "0.16.9",
       "latest_satisfies": true,
       "name": "ruff",
       "python_3_14": true,
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all 15 Python and 3 Node direct dependency entries against the 0.22.2 receipt, including registry candidates outside bounds. Core is deliberately raised to >=0.41.1,<0.42.0: installed explicit Core 0.41.1 wheel (sha256 ba038f770b8910a6211565d5c1b30cb5cd78e5d324e7893e568d99dab33cc9fd); registry latest 0.41.0 is excluded because it rejects legal interrupted observation cleanup during READY audit. Reviewed Core public ports.py and vnext_facade.py from release commit c90044e (0.39.10): no catalog reader/facade signature changes; domain changes are ingest source staging ownership, outside OPDS reads. Exact schema8 admission is validated by real SQLite startup, previous/BUILDING rejection without writes, and the 165-publication manifest-bound HTTP fixture (16 benchmark integration tests passed, including unchanged discovery/search/facet response SHA256 oracles). Existing HTTP/acquisition formats and managed-filesystem-v2 storage remain unchanged. Remaining moved candidates: hatchling 1.32.3->1.32.4 restores BuildHookInterface plugin generics and trims CalVer metadata whitespace (https://hatch.pypa.io/dev/history/hatchling/); no custom build hooks or CalVer are used. markdownlint-cli2 0.23.2->0.23.3 updates dependencies; the installed candidate uses markdownlint 0.41.1 (upstream CHANGELOG.md and https://github.com/DavidAnson/markdownlint-cli2/releases/tag/v0.23.3). Both candidates installed and repository Ruff/format/strict mypy/Markdown gates pass; other direct registry candidates unchanged and installed at reviewed latest versions. Full release gate separately validates bounded tests, schema closures, sdist/wheel and installed-wheel dependency contract.",
+    "note": "Reviewed all direct build, runtime, development and Node candidates on 2026-09-25. Core 0.42.0 is now the registry candidate and is admitted alongside the retained >=0.41.1 lower bound; <0.43.0 excludes the next unreviewed lane. Compared Core 0.41.2 commit 64683c5 with 0.42.0 source f8fdf37: public exports, config, domain, ports, facades and generated schema provider are unchanged; only the private offline conversion audit writer was removed. Installed the explicit Core 0.42.0 wheel SHA256 c7e3c56db5174ace5b15d9fdb25c3788e24938affbcbeffc6d3e3d6908358a9d, whose 95 package files exactly match the reviewed checkout. No consumer runtime shim or database migration is introduced. Ruff 0.16.9 fixes keyword-argument false positives in enabled bugbear rules and deferred-annotation lazy imports; reviewed https://github.com/astral-sh/ruff/releases/tag/0.16.9 and installed the candidate with strict rules unchanged. Other unchanged upstream candidate reviews carry forward. Reviewed Uvicorn 0.54.0 at https://github.com/Kludex/uvicorn/releases/tag/0.54.0: response trailers and 103 Early Hints affect the opt-in experimental zttp HTTP/2 path, which this service does not select. Installed the latest allowed dependency candidates and exercised schema-8 read-only startup, incompatible-schema rejection and the real SQLite/HTTP fixture: 19 focused tests passed. The final canonical merge gate separately validates the full bounded suite, OPDS schema closures, distribution build and installed-wheel requirements. Historical schema-7 conversion documentation now points to Core 0.41.2 because 0.42 removes that one-time tool.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
