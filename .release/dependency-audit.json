@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-25T08:46:52+00:00",
-  "manifest_sha256": "67fac0f0dca4a96f150a3245ad6a96e34b663992a96d8b28e9f9a0004249050c",
+  "checked_at": "2026-09-26T18:25:03+00:00",
+  "manifest_sha256": "55e0f301d60293c659acfd91ef403a87f3262c8bac0af9fe803ffab01f8c0796",
   "node": [
     {
       "declared": ">=8.20.0 <9.0.0",
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.23.1",
+  "project_version": "0.24.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -42,10 +42,10 @@
       "url": "https://pypi.org/project/fastapi/"
     },
     {
-      "declared": "h2hdb>=0.41.1,<0.43.0",
+      "declared": "h2hdb>=0.43.0,<0.44.0",
       "group": "runtime",
-      "latest": "0.42.0",
-      "latest_satisfies": true,
+      "latest": "0.42.2",
+      "latest_satisfies": false,
       "name": "h2hdb",
       "python_3_14": true,
       "url": "https://pypi.org/project/h2hdb/"
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all direct build, runtime, development and Node candidates on 2026-09-25. Core 0.42.0 is now the registry candidate and is admitted alongside the retained >=0.41.1 lower bound; <0.43.0 excludes the next unreviewed lane. Compared Core 0.41.2 commit 64683c5 with 0.42.0 source f8fdf37: public exports, config, domain, ports, facades and generated schema provider are unchanged; only the private offline conversion audit writer was removed. Installed the explicit Core 0.42.0 wheel SHA256 c7e3c56db5174ace5b15d9fdb25c3788e24938affbcbeffc6d3e3d6908358a9d, whose 95 package files exactly match the reviewed checkout. No consumer runtime shim or database migration is introduced. Ruff 0.16.9 fixes keyword-argument false positives in enabled bugbear rules and deferred-annotation lazy imports; reviewed https://github.com/astral-sh/ruff/releases/tag/0.16.9 and installed the candidate with strict rules unchanged. Other unchanged upstream candidate reviews carry forward. Reviewed Uvicorn 0.54.0 at https://github.com/Kludex/uvicorn/releases/tag/0.54.0: response trailers and 103 Early Hints affect the opt-in experimental zttp HTTP/2 path, which this service does not select. Installed the latest allowed dependency candidates and exercised schema-8 read-only startup, incompatible-schema rejection and the real SQLite/HTTP fixture: 19 focused tests passed. The final canonical merge gate separately validates the full bounded suite, OPDS schema closures, distribution build and installed-wheel requirements. Historical schema-7 conversion documentation now points to Core 0.41.2 because 0.42 removes that one-time tool.",
+    "note": "Reviewed all 15 direct Python build/runtime/development entries and 3 Node entries against the registry on 2026-09-27 and compared with the 0.23.1 receipt. Every non-Core latest version and declaration is unchanged; the previously recorded upstream release-note reviews remain applicable. Core registry latest moved from 0.42.0 to 0.42.2. Reviewed local Core commits f8fdf37 through 33b2e50: they optimize source/cleanup and retained-file audit costs while retaining schema 8, so 0.42.2 is deliberately outside this schema-9-only consumer lane. Require >=0.43.0,<0.44.0 because observation-owned and published-occurrence-owned upload timestamps replace the former GID-global authority in schema 9; the next unreviewed Core lane remains excluded. No runtime fallback or schema-8 shim is retained. Reviewed Core public CatalogPublication.published_at and catalog facade projection, OPDS Atom dcterms:issued and OPDS 2 metadata.published serialization. A same-GID backward timestamp correction is covered by two passing real ASGI feed/detail and stale-revision HTTP regressions using the explicit local schema-9 candidate wheel. Core 0.43.0 is an unreleased local artifact, not a registry installation claim. OPDS lint, format, strict typing and Markdown checks pass. Exact final Core-wheel SQLite/HTTP smoke and the full bounded consumer gate remain mandatory before merge; this dependency receipt does not claim those pending results.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"

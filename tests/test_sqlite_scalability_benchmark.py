@@ -231,13 +231,13 @@ def test_built_wheel_accepts_the_core_used_by_required_sqlite_integration(
         assert required_core[0].specifier.contains(tested_core), (
             f"Built wheel declares {required_core[0]}, excluding tested core {tested_core}"
         )
-    # Schema 8 requires the interruption-safe READY validation in Core 0.41.1.
-    # Earlier releases and the next unreviewed lane remain outside the candidates.
-    for supported_core in ("0.41.1", "0.41.2", "0.42.0"):
+    # Schema 9 owns upload timestamps per observation and publication occurrence.
+    # Schema 8 and the next unreviewed lane must not be admitted by the wheel.
+    for supported_core in ("0.43.0", "0.43.1"):
         assert required_core[0].specifier.contains(supported_core), (
             f"Built wheel excludes supported core {supported_core}"
         )
-    for unsupported_core in ("0.39.10", "0.40.0", "0.41.0", "0.43.0"):
+    for unsupported_core in ("0.40.0", "0.41.2", "0.42.2", "0.44.0"):
         assert not required_core[0].specifier.contains(unsupported_core), (
             f"Built wheel admits unreviewed core {unsupported_core}"
         )
@@ -256,7 +256,7 @@ def test_core_fixture_receipt_is_exactly_bound_to_ready_database(
     assert authority.fixture_mode == "manifest-bound-sql"
     assert authority.profile == "smoke"
     assert authority.schema_epoch == 3
-    assert authority.schema_version == 8
+    assert authority.schema_version == 9
     assert authority.publication_count == _SMOKE_PUBLICATION_COUNT
     assert authority.artifact_count == _SMOKE_PUBLICATION_COUNT
     assert authority.acquisition_descriptor_count == _SMOKE_PUBLICATION_COUNT
@@ -270,7 +270,7 @@ def test_core_fixture_receipt_is_exactly_bound_to_ready_database(
     )
 
 
-@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6, 7, 9))
+@pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6, 7, 8, 10))
 def test_core_fixture_rejects_other_schema_versions(
     core_smoke_fixture: tuple[Path, Path],
     tmp_path: Path,
@@ -285,7 +285,7 @@ def test_core_fixture_rejects_other_schema_versions(
     unsupported = tmp_path / "unsupported-schema.json"
     unsupported.write_text(json.dumps(document), encoding="utf-8")
 
-    with pytest.raises(FixtureReceiptError, match="schema epoch 3/version 8"):
+    with pytest.raises(FixtureReceiptError, match="schema epoch 3/version 9"):
         load_core_fixture(database, unsupported)
 
 
