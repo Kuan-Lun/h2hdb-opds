@@ -29,7 +29,7 @@ async def test_sqlite_epoch_three_is_opened_read_only_without_legacy_writer_api(
     with closing(VNextDatabaseAdminFacade(writable_config)) as admin:
         report = admin.initialize()
     assert report.epoch == 3
-    assert report.schema_version == 8
+    assert report.schema_version == 9
     assert report.state == "READY"
 
     def forbid_writer_or_full_audit(_admin: VNextDatabaseAdminFacade) -> None:
@@ -69,7 +69,7 @@ async def test_sqlite_epoch_three_is_opened_read_only_without_legacy_writer_api(
     assert sha256(database_path.read_bytes()).digest() == database_sha256
 
 
-@pytest.mark.parametrize(("schema_version", "state"), ((7, "READY"), (8, "BUILDING")))
+@pytest.mark.parametrize(("schema_version", "state"), ((8, "READY"), (9, "BUILDING")))
 async def test_sqlite_startup_rejects_previous_or_unfinished_schema_without_writes(
     tmp_path: Path,
     schema_version: int,
