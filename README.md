@@ -139,9 +139,11 @@ ASCII 引號與彎引號不能混搭，`”...“` 反向配對無效，
 ### 準備環境與書庫
 
 需要 Python 3.14 以上版本，以及支援 POSIX 檔案鎖的環境，例如 Linux 或 macOS。
-此版本使用 `h2hdb>=0.41.1,<0.43.0`，對應 epoch 3／schema version 8。
-Core 0.41.1 修正清理中斷時的完整稽核誤判；Core 0.42 保留相同的
-catalog API 與 schema 8。HTTP、catalog 與 CBZ 格式不變。
+此版本使用 `h2hdb>=0.43.0,<0.44.0`，對應 epoch 3／schema version 9，
+不再接納 schema 8。上傳時間取自目前已發佈的 observation，
+同一 GID 在後續 revision 可具有不同時間；OPDS 1.2 的 `dcterms:issued`
+與 OPDS 2 的 `metadata.published` 均使用 Core 公開的 `published_at`。
+HTTP 欄位與 CBZ 格式不變。
 啟動前，請先由 H2HDB 與 ingest 完成初始化及書庫發佈，準備：
 
 - 已完成初始化、狀態為 `READY` 的相容資料庫。
@@ -152,15 +154,14 @@ catalog API 與 schema 8。HTTP、catalog 與 CBZ 格式不變。
 只有已發佈且有可下載檔案的內容會出現在閱讀器。
 目前需要 ingest 的 `managed-filesystem-v2` 書庫，不支援舊 `hash-v1` 格式。
 
-既有 exact schema 7 資料庫需先停止所有 consumers，由管理者依
+既有 exact schema 8 資料庫需先停止所有 consumers，由管理者依
 [H2HDB 的升級說明](https://github.com/Kuan-Lun/h2hdb#readme)
-使用歷史 Core 0.41.2 的離線 `upgrade-source-collection-schema.py` 轉至 schema 8，
-保留 catalog、來源觀測與 CBZ，不需清空資料庫或重新封裝。
-Core 0.42 已移除此一次性工具，需依 Core 說明使用歷史 checkout 或既有升級包。
-Schema 6 須先使用 Core 0.40.0 的 `upgrade-audit-schema.py` 轉至 schema 7。
+使用 Core 的離線 `upgrade-observation-upload-time-schema.py` 轉至 schema 9。
+此轉換保留資料庫內容、CBZ 與 artwork，不需清空資料庫或重新封裝；
+OPDS 不會自行執行轉換，也不保留舊 schema 的 fallback。
 升級完成後，須確認每個應用映像中的 Core 與 consumer 版本都相容，再啟動服務；
-一次性升級容器不會更新應用映像。其他舊版或不相符資料庫由 Core 的管理工具拒絕，
-應先確認其版本及可用轉換途徑，不應直接刪除資料。
+一次性升級容器不會更新應用映像。更舊或不相符資料庫應先依 Core 說明確認
+可用轉換途徑，不應直接刪除資料。
 
 ### 安裝
 
