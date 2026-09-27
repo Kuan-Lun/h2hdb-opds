@@ -139,11 +139,13 @@ ASCII 引號與彎引號不能混搭，`”...“` 反向配對無效，
 ### 準備環境與書庫
 
 需要 Python 3.14 以上版本，以及支援 POSIX 檔案鎖的環境，例如 Linux 或 macOS。
-此版本使用 `h2hdb>=0.43.0,<0.44.0`，對應 epoch 3／schema version 9，
+此版本使用 `h2hdb>=0.43.0,<0.45.0`，對應 epoch 3／schema version 9，
 不再接納 schema 8。上傳時間取自目前已發佈的 observation，
 同一 GID 在後續 revision 可具有不同時間；OPDS 1.2 的 `dcterms:issued`
 與 OPDS 2 的 `metadata.published` 均使用 Core 公開的 `published_at`。
 HTTP 欄位與 CBZ 格式不變。
+Core 0.43 與 0.44 使用相同的 schema 9 與公開 catalog 介面；0.44 移除的是
+一次性離線升級工具，OPDS 可使用這兩個 Core 版本系列。
 啟動前，請先由 H2HDB 與 ingest 完成初始化及書庫發佈，準備：
 
 - 已完成初始化、狀態為 `READY` 的相容資料庫。
@@ -154,9 +156,12 @@ HTTP 欄位與 CBZ 格式不變。
 只有已發佈且有可下載檔案的內容會出現在閱讀器。
 目前需要 ingest 的 `managed-filesystem-v2` 書庫，不支援舊 `hash-v1` 格式。
 
-既有 exact schema 8 資料庫需先停止所有 consumers，由管理者依
-[H2HDB 的升級說明](https://github.com/Kuan-Lun/h2hdb#readme)
-使用 Core 的離線 `upgrade-observation-upload-time-schema.py` 轉至 schema 9。
+已完成 schema 9 轉換的資料庫不需再次轉換、清庫或重建 CBZ。
+尚未轉換的 exact schema 8 資料庫需先停止所有 consumers，由管理者使用
+Core 0.43.0 的獨立歷史 checkout（commit
+`70ca4a35d02a50e7d6f8fd294fccb0829321eaf4`）中的離線
+`scripts/upgrade-observation-upload-time-schema.py`，依該版本 README
+及對應環境轉至 schema 9；目前 Core checkout 已移除這些一次性升級工具。
 此轉換保留資料庫內容、CBZ 與 artwork，不需清空資料庫或重新封裝；
 OPDS 不會自行執行轉換，也不保留舊 schema 的 fallback。
 升級完成後，須確認每個應用映像中的 Core 與 consumer 版本都相容，再啟動服務；
