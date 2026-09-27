@@ -154,9 +154,12 @@ HTTP 欄位與 CBZ 格式不變。
 只有已發佈且有可下載檔案的內容會出現在閱讀器。
 目前需要 ingest 的 `managed-filesystem-v2` 書庫，不支援舊 `hash-v1` 格式。
 
-既有 exact schema 8 資料庫需先停止所有 consumers，由管理者依
-[H2HDB 的升級說明](https://github.com/Kuan-Lun/h2hdb#readme)
-使用 Core 的離線 `upgrade-observation-upload-time-schema.py` 轉至 schema 9。
+已完成 schema 9 轉換的資料庫不需再次轉換、清庫或重建 CBZ。
+尚未轉換的 exact schema 8 資料庫需先停止所有 consumers，由管理者使用
+Core 0.43.0 的獨立歷史 checkout（commit
+`70ca4a35d02a50e7d6f8fd294fccb0829321eaf4`）中的離線
+`scripts/upgrade-observation-upload-time-schema.py`，依該版本 README
+及對應環境轉至 schema 9；目前 Core checkout 已移除這些一次性升級工具。
 此轉換保留資料庫內容、CBZ 與 artwork，不需清空資料庫或重新封裝；
 OPDS 不會自行執行轉換，也不保留舊 schema 的 fallback。
 升級完成後，須確認每個應用映像中的 Core 與 consumer 版本都相容，再啟動服務；
