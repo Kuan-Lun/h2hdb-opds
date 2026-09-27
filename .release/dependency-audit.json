@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-26T18:25:03+00:00",
-  "manifest_sha256": "55e0f301d60293c659acfd91ef403a87f3262c8bac0af9fe803ffab01f8c0796",
+  "checked_at": "2026-09-27T06:19:43+00:00",
+  "manifest_sha256": "dcc6df3e4ef1f4e3db14ebd31ead676a6dff8418965d31ed191a6a48bbd402fd",
   "node": [
     {
       "declared": ">=8.20.0 <9.0.0",
@@ -21,7 +21,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.24.0",
+  "project_version": "0.24.1",
   "python": [
     {
       "declared": "hatchling>=1.32.0,<2.0.0",
@@ -42,7 +42,7 @@
       "url": "https://pypi.org/project/fastapi/"
     },
     {
-      "declared": "h2hdb>=0.43.0,<0.44.0",
+      "declared": "h2hdb>=0.43.0,<0.45.0",
       "group": "runtime",
       "latest": "0.42.2",
       "latest_satisfies": false,
@@ -160,7 +160,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all 15 direct Python build/runtime/development entries and 3 Node entries against the registry on 2026-09-27 and compared with the 0.23.1 receipt. Every non-Core latest version and declaration is unchanged; the previously recorded upstream release-note reviews remain applicable. Core registry latest moved from 0.42.0 to 0.42.2. Reviewed local Core commits f8fdf37 through 33b2e50: they optimize source/cleanup and retained-file audit costs while retaining schema 8, so 0.42.2 is deliberately outside this schema-9-only consumer lane. Require >=0.43.0,<0.44.0 because observation-owned and published-occurrence-owned upload timestamps replace the former GID-global authority in schema 9; the next unreviewed Core lane remains excluded. No runtime fallback or schema-8 shim is retained. Reviewed Core public CatalogPublication.published_at and catalog facade projection, OPDS Atom dcterms:issued and OPDS 2 metadata.published serialization. A same-GID backward timestamp correction is covered by two passing real ASGI feed/detail and stale-revision HTTP regressions using the explicit local schema-9 candidate wheel. Core 0.43.0 is an unreleased local artifact, not a registry installation claim. OPDS lint, format, strict typing and Markdown checks pass. Exact final Core-wheel SQLite/HTTP smoke and the full bounded consumer gate remain mandatory before merge; this dependency receipt does not claim those pending results.",
+    "note": "Reviewed every direct build, runtime, development and Node registry candidate, including outside declared bounds, against the prior 0.24.0 receipt. Every non-Core latest version, Python 3.14 support result and declaration is unchanged; the previous official release-note reviews retained in Git history remain applicable. Registry Core remains 0.42.2 and is deliberately excluded because it uses schema 8. This compatible consumer patch expands Core to >=0.43.0,<0.45.0, preserving the verified 0.43 lane and admitting 0.44 while rejecting schema-8 releases and the unreviewed 0.45 lane. Core 0.44.0 removes the public one-time offline upgrade tools, a breaking CLI retirement in Core; it keeps schema 9 and consumer public runtime contracts unchanged. Independently compared all 95 h2hdb package files in Core 0.44.0 wheel SHA256 8c78e6deb328421e5bb0e3c92fe1357f127a899f548267b775d4c006a896db0d with tested Core 0.43.0 v5 wheel SHA256 041bb67265cd12d6d2762841ec55c4bb996b3f697d2512bc5ddd8e47b947b966: file sets and bytes are identical. Installed the explicit local 0.44 wheel and verified every installed package file; this is not a registry installation claim. 22 targeted cases passed on Core 0.44.0: actual OPDS 1.2/2 timestamp HTTP serialization, built-wheel dependency boundaries, the schema-9 SQLite fixture and read-only startup rejection paths. The built-wheel boundary also passed on the retained Core 0.43.0 v5 environment before installation of 0.44.0. Normal pre-commit fast checks passed for the functional change. README points any still-unconverted database to the separate historical Core 0.43.0 checkout at 70ca4a35d02a50e7d6f8fd294fccb0829321eaf4; existing schema 9 needs no conversion, data deletion or CBZ rebuild. No consumer runtime shim or source behavior was added. Final exact-tree review, full gate, distribution smoke and final release-commit checks remain mandatory and are not claimed by this dependency receipt. No live external consumer, account, browser, NAS or production database was used.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
