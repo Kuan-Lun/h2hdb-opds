@@ -233,11 +233,18 @@ def test_built_wheel_accepts_the_core_used_by_required_sqlite_integration(
         )
     # Schema 9 owns upload timestamps per observation and publication occurrence.
     # Schema 8 and the next unreviewed lane must not be admitted by the wheel.
-    for supported_core in ("0.43.0", "0.43.1", "0.44.0", "0.44.1"):
+    for supported_core in (
+        "0.43.0",
+        "0.43.1",
+        "0.44.0",
+        "0.44.1",
+        "0.45.0",
+        "0.45.1",
+    ):
         assert required_core[0].specifier.contains(supported_core), (
             f"Built wheel excludes supported core {supported_core}"
         )
-    for unsupported_core in ("0.40.0", "0.41.2", "0.42.2", "0.45.0"):
+    for unsupported_core in ("0.40.0", "0.41.2", "0.42.2", "0.46.0"):
         assert not required_core[0].specifier.contains(unsupported_core), (
             f"Built wheel admits unreviewed core {unsupported_core}"
         )
