@@ -139,13 +139,14 @@ ASCII 引號與彎引號不能混搭，`”...“` 反向配對無效，
 ### 準備環境與書庫
 
 需要 Python 3.14 以上版本，以及支援 POSIX 檔案鎖的環境，例如 Linux 或 macOS。
-此版本使用 `h2hdb>=0.43.0,<0.45.0`，對應 epoch 3／schema version 9，
+此版本使用 `h2hdb>=0.43.0,<0.46.0`，對應 epoch 3／schema version 9，
 不再接納 schema 8。上傳時間取自目前已發佈的 observation，
 同一 GID 在後續 revision 可具有不同時間；OPDS 1.2 的 `dcterms:issued`
 與 OPDS 2 的 `metadata.published` 均使用 Core 公開的 `published_at`。
 HTTP 欄位與 CBZ 格式不變。
-Core 0.43 與 0.44 使用相同的 schema 9 與公開 catalog 介面；0.44 移除的是
-一次性離線升級工具，OPDS 可使用這兩個 Core 版本系列。
+Core 0.43、0.44 與 0.45 使用相同的 schema 9 與公開 catalog 介面；0.44 移除的是
+一次性離線升級工具，0.45 調整 ingest 決策查詢與效能紀錄，不改變 OPDS 使用的
+唯讀 catalog 契約。OPDS 可使用這三個 Core 版本系列。
 啟動前，請先由 H2HDB 與 ingest 完成初始化及書庫發佈，準備：
 
 - 已完成初始化、狀態為 `READY` 的相容資料庫。
