@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import os
+import shutil
 import sys
 from contextlib import closing
 from pathlib import Path
@@ -11,8 +12,10 @@ import h2hdb
 import pytest
 from h2hdb import VNextDatabaseAdminFacade
 
+from benchmarks.opds_sqlite_scalability import load_core_fixture
 from h2hdb_opds import OPDSConfig, create_app
 
+from .catalog_fixture import _prepare_core_smoke_fixture
 from .catalog_http_oracle import EXPECTED_OPERATION_ORDER, SMOKE_EXPECTED_BODY_SHA256
 from .database_support import DatabaseCase
 from .http_client import app_client
@@ -51,16 +54,28 @@ def _seed_public_catalog(database_case: DatabaseCase) -> None:
     assert expected["search"]["publication_count"] == 33
 
 
+def _prepare_public_catalog(database_case: DatabaseCase, root: Path) -> None:
+    if database_case.config.database.sql_type == "sqlite":
+        fixture_root = root / "verified-core-fixture"
+        fixture_root.mkdir()
+        database, receipt = _prepare_core_smoke_fixture(fixture_root)
+        authority = load_core_fixture(database, receipt)
+        assert authority.publication_count == 165
+        shutil.copyfile(database, database_case.config.database.database)
+    else:
+        with closing(VNextDatabaseAdminFacade(database_case.config)) as admin:
+            assert admin.initialize().state == "READY"
+        _seed_public_catalog(database_case)
+    with closing(VNextDatabaseAdminFacade(database_case.config)) as admin:
+        assert admin.check().state == "READY"
+
+
 async def test_published_catalog_native_database_exact_http_oracle(
     database_case: DatabaseCase,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with closing(VNextDatabaseAdminFacade(database_case.config)) as admin:
-        initialized = admin.initialize()
-        assert initialized.state == "READY"
-        _seed_public_catalog(database_case)
-        assert admin.check().state == "READY"
+    _prepare_public_catalog(database_case, tmp_path)
 
     def forbid_full_audit(_admin: VNextDatabaseAdminFacade) -> None:
         pytest.fail("published reader startup must use readiness admission")

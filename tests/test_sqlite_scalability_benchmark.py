@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -23,6 +22,7 @@ from benchmarks.opds_sqlite_scalability import (
     run_sqlite_benchmark,
 )
 
+from .catalog_fixture import _prepare_core_smoke_fixture
 from .catalog_http_oracle import EXPECTED_OPERATION_ORDER, SMOKE_EXPECTED_BODY_SHA256
 
 pytestmark = pytest.mark.backend_specific(
@@ -43,71 +43,6 @@ def core_smoke_fixture(
     return _prepare_core_smoke_fixture(
         tmp_path_factory.mktemp("core-sqlite-scalability")
     )
-
-
-def _prepare_core_smoke_fixture(root: Path) -> tuple[Path, Path]:
-    database = root / "catalog.sqlite3"
-    receipt = root / "core-receipt.json"
-    provided_database = os.environ.get("H2HDB_SQLITE_FIXTURE_DATABASE")
-    provided_receipt = os.environ.get("H2HDB_SQLITE_FIXTURE_RECEIPT")
-    if provided_database is not None or provided_receipt is not None:
-        if not provided_database or not provided_database.strip():
-            pytest.fail("H2HDB_SQLITE_FIXTURE_DATABASE must name the smoke database")
-        if not provided_receipt or not provided_receipt.strip():
-            pytest.fail("H2HDB_SQLITE_FIXTURE_RECEIPT must name its core receipt")
-        shutil.copyfile(Path(provided_database).expanduser(), database)
-        shutil.copyfile(Path(provided_receipt).expanduser(), receipt)
-        authority = load_core_fixture(database, receipt)
-        if authority.profile != "smoke":
-            pytest.fail(
-                "automatic SQLite integration requires the bounded smoke fixture"
-            )
-        return database, receipt
-
-    configured_root = os.environ.get("H2HDB_CORE_REPOSITORY")
-    if configured_root is not None:
-        if not configured_root.strip():
-            pytest.fail("H2HDB_CORE_REPOSITORY must name a core checkout")
-        core_root = Path(configured_root).expanduser().resolve(strict=True)
-    else:
-        raw_init = h2hdb.__file__
-        if raw_init is None:
-            pytest.fail(
-                "SQLite integration requires H2HDB_CORE_REPOSITORY or both "
-                "H2HDB_SQLITE_FIXTURE_DATABASE and H2HDB_SQLITE_FIXTURE_RECEIPT"
-            )
-        core_root = Path(raw_init).resolve(strict=True).parents[2]
-    generator = core_root / "benchmarks" / "sqlite_catalog_scalability.py"
-    if not generator.is_file():
-        if configured_root is not None:
-            pytest.fail(
-                f"H2HDB_CORE_REPOSITORY lacks the fixture generator: {generator}"
-            )
-        pytest.fail(
-            "The installed h2hdb wheel lacks its smoke fixture generator; set "
-            "H2HDB_CORE_REPOSITORY to an explicit core source checkout or provide "
-            "both H2HDB_SQLITE_FIXTURE_DATABASE and H2HDB_SQLITE_FIXTURE_RECEIPT. "
-            "Required SQLite integration cannot be skipped."
-        )
-    completed = subprocess.run(
-        (
-            sys.executable,
-            str(generator),
-            "--profile",
-            "smoke",
-            "--database",
-            str(database),
-            "--receipt",
-            str(receipt),
-        ),
-        cwd=core_root,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert completed.returncode == 0, completed.stderr
-    return database, receipt
 
 
 def test_wheel_only_environment_cannot_silently_skip_required_sqlite_integration(
@@ -480,3 +415,33 @@ async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
         and item["python_traced_peak_delta_bytes"] > 0
         for item in operation_memory.values()
     )
+
+
+def test_portable_http_fixture_accepts_verified_inputs_without_core_source(
+    core_smoke_fixture: tuple[Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from h2hdb import CoreConfig, DatabaseConfig
+
+    from .database_support import DatabaseCase
+    from .test_database_http_catalog import _prepare_public_catalog
+
+    source_database, source_receipt = core_smoke_fixture
+    monkeypatch.setenv("H2HDB_SQLITE_FIXTURE_DATABASE", str(source_database))
+    monkeypatch.setenv("H2HDB_SQLITE_FIXTURE_RECEIPT", str(source_receipt))
+    monkeypatch.delenv("H2HDB_CORE_REPOSITORY", raising=False)
+    package_init = tmp_path / "site-packages" / "h2hdb" / "__init__.py"
+    package_init.parent.mkdir(parents=True)
+    package_init.touch()
+    monkeypatch.setattr(h2hdb, "__file__", str(package_init))
+    destination = tmp_path / "native-http.sqlite3"
+    case = DatabaseCase(
+        CoreConfig(
+            database=DatabaseConfig(sql_type="sqlite", database=str(destination))
+        )
+    )
+
+    _prepare_public_catalog(case, tmp_path)
+
+    assert destination.read_bytes() == source_database.read_bytes()
