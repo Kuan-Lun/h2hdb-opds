@@ -24,3 +24,6 @@ def opds_config(tmp_path: Path) -> OPDSConfig:
         coordination_root=coordination_root,
         public_base_url="http://catalog.example",
     )
+
+
+pytest_plugins = ["tests.database_support", "tests.backend_contract"]

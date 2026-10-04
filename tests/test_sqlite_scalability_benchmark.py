@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -23,39 +22,18 @@ from benchmarks.opds_sqlite_scalability import (
     run_sqlite_benchmark,
 )
 
-_SMOKE_PUBLICATION_COUNT = 165
-_EXPECTED_OPERATION_ORDER = (
-    "discovery_first_page",
-    "discovery_cursor_page",
-    "nonempty_search_first_page",
-    "nonempty_search_cursor_page",
-    "facet_language_first_page",
-    "facet_subject_first_page",
-    "facet_contributor_first_page",
+from .catalog_fixture import _prepare_core_smoke_fixture
+from .catalog_http_oracle import EXPECTED_OPERATION_ORDER, SMOKE_EXPECTED_BODY_SHA256
+
+pytestmark = pytest.mark.backend_specific(
+    backend="sqlite",
+    reason=(
+        "SQLite benchmark receipts bind exact database-file bytes and physical "
+        "page metrics; the portable HTTP oracle is separately paired on both engines"
+    ),
 )
-_SMOKE_EXPECTED_BODY_SHA256 = {
-    "discovery_first_page": (
-        "51bddb85a66a7d2bef63867a073873fa8190ba5d484f7715a9e4220c218bea4e"
-    ),
-    "discovery_cursor_page": (
-        "0bc3f6007a5c6c87c95d66eec1e264e09562d7c0e226f5159c55ab166777d608"
-    ),
-    "nonempty_search_first_page": (
-        "d117f03ac54cd357b35cc6aed5b425ce5a3541cdfe58ecd5f8acb9bdeaeadffd"
-    ),
-    "nonempty_search_cursor_page": (
-        "936581cd74839c5b274e757d27aaf61903c0b36bc101507fb668af2e17bbeba4"
-    ),
-    "facet_language_first_page": (
-        "2eaa4e17580c5de00a02a346d9456e654959b89ef5f51e89928aa7576590f4d9"
-    ),
-    "facet_subject_first_page": (
-        "75255856d4d1e5a4d418b4b2dfff0fcad31e34bc10ca47d0d2504645417601f1"
-    ),
-    "facet_contributor_first_page": (
-        "09ed8dc7e16b039b6166e187ca245923b3e037fcf0662d8688a7395526951181"
-    ),
-}
+
+_SMOKE_PUBLICATION_COUNT = 165
 
 
 @pytest.fixture(scope="module")
@@ -65,71 +43,6 @@ def core_smoke_fixture(
     return _prepare_core_smoke_fixture(
         tmp_path_factory.mktemp("core-sqlite-scalability")
     )
-
-
-def _prepare_core_smoke_fixture(root: Path) -> tuple[Path, Path]:
-    database = root / "catalog.sqlite3"
-    receipt = root / "core-receipt.json"
-    provided_database = os.environ.get("H2HDB_SQLITE_FIXTURE_DATABASE")
-    provided_receipt = os.environ.get("H2HDB_SQLITE_FIXTURE_RECEIPT")
-    if provided_database is not None or provided_receipt is not None:
-        if not provided_database or not provided_database.strip():
-            pytest.fail("H2HDB_SQLITE_FIXTURE_DATABASE must name the smoke database")
-        if not provided_receipt or not provided_receipt.strip():
-            pytest.fail("H2HDB_SQLITE_FIXTURE_RECEIPT must name its core receipt")
-        shutil.copyfile(Path(provided_database).expanduser(), database)
-        shutil.copyfile(Path(provided_receipt).expanduser(), receipt)
-        authority = load_core_fixture(database, receipt)
-        if authority.profile != "smoke":
-            pytest.fail(
-                "automatic SQLite integration requires the bounded smoke fixture"
-            )
-        return database, receipt
-
-    configured_root = os.environ.get("H2HDB_CORE_REPOSITORY")
-    if configured_root is not None:
-        if not configured_root.strip():
-            pytest.fail("H2HDB_CORE_REPOSITORY must name a core checkout")
-        core_root = Path(configured_root).expanduser().resolve(strict=True)
-    else:
-        raw_init = h2hdb.__file__
-        if raw_init is None:
-            pytest.fail(
-                "SQLite integration requires H2HDB_CORE_REPOSITORY or both "
-                "H2HDB_SQLITE_FIXTURE_DATABASE and H2HDB_SQLITE_FIXTURE_RECEIPT"
-            )
-        core_root = Path(raw_init).resolve(strict=True).parents[2]
-    generator = core_root / "benchmarks" / "sqlite_catalog_scalability.py"
-    if not generator.is_file():
-        if configured_root is not None:
-            pytest.fail(
-                f"H2HDB_CORE_REPOSITORY lacks the fixture generator: {generator}"
-            )
-        pytest.fail(
-            "The installed h2hdb wheel lacks its smoke fixture generator; set "
-            "H2HDB_CORE_REPOSITORY to an explicit core source checkout or provide "
-            "both H2HDB_SQLITE_FIXTURE_DATABASE and H2HDB_SQLITE_FIXTURE_RECEIPT. "
-            "Required SQLite integration cannot be skipped."
-        )
-    completed = subprocess.run(
-        (
-            sys.executable,
-            str(generator),
-            "--profile",
-            "smoke",
-            "--database",
-            str(database),
-            "--receipt",
-            str(receipt),
-        ),
-        cwd=core_root,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert completed.returncode == 0, completed.stderr
-    return database, receipt
 
 
 def test_wheel_only_environment_cannot_silently_skip_required_sqlite_integration(
@@ -398,7 +311,7 @@ async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
     assert mode["core_internal_api_used"] is False
     assert mode["direct_sql_used"] is False
     assert mode["cbz_or_artwork_bytes_read"] is False
-    assert report["operation_order"] == list(_EXPECTED_OPERATION_ORDER)
+    assert report["operation_order"] == list(EXPECTED_OPERATION_ORDER)
 
     fixture = cast("dict[str, object]", report["fixture"])
     database_evidence = cast("dict[str, object]", fixture["database"])
@@ -423,10 +336,10 @@ async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
         assert value > 0
 
     operations = cast("dict[str, dict[str, object]]", report["operations"])
-    assert tuple(operations) == _EXPECTED_OPERATION_ORDER
+    assert tuple(operations) == EXPECTED_OPERATION_ORDER
     assert {
         name: operation["body_sha256"] for name, operation in operations.items()
-    } == _SMOKE_EXPECTED_BODY_SHA256
+    } == SMOKE_EXPECTED_BODY_SHA256
     for operation in operations.values():
         assert operation["status_code"] == 200
         assert isinstance(operation["first_sample_ns"], int)
@@ -496,9 +409,39 @@ async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
     operation_memory = cast(
         "dict[str, dict[str, object]]", request_memory["operations"]
     )
-    assert tuple(operation_memory) == _EXPECTED_OPERATION_ORDER
+    assert tuple(operation_memory) == EXPECTED_OPERATION_ORDER
     assert all(
         isinstance(item["python_traced_peak_delta_bytes"], int)
         and item["python_traced_peak_delta_bytes"] > 0
         for item in operation_memory.values()
     )
+
+
+def test_portable_http_fixture_accepts_verified_inputs_without_core_source(
+    core_smoke_fixture: tuple[Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from h2hdb import CoreConfig, DatabaseConfig
+
+    from .database_support import DatabaseCase
+    from .test_database_http_catalog import _prepare_public_catalog
+
+    source_database, source_receipt = core_smoke_fixture
+    monkeypatch.setenv("H2HDB_SQLITE_FIXTURE_DATABASE", str(source_database))
+    monkeypatch.setenv("H2HDB_SQLITE_FIXTURE_RECEIPT", str(source_receipt))
+    monkeypatch.delenv("H2HDB_CORE_REPOSITORY", raising=False)
+    package_init = tmp_path / "site-packages" / "h2hdb" / "__init__.py"
+    package_init.parent.mkdir(parents=True)
+    package_init.touch()
+    monkeypatch.setattr(h2hdb, "__file__", str(package_init))
+    destination = tmp_path / "native-http.sqlite3"
+    case = DatabaseCase(
+        CoreConfig(
+            database=DatabaseConfig(sql_type="sqlite", database=str(destination))
+        )
+    )
+
+    _prepare_public_catalog(case, tmp_path)
+
+    assert destination.read_bytes() == source_database.read_bytes()

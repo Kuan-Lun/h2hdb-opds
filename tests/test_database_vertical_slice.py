@@ -1,31 +1,23 @@
-import sqlite3
 from contextlib import closing
-from hashlib import sha256
 from pathlib import Path
 
 import pytest
 from h2hdb import (
-    CoreConfig,
-    DatabaseConfig,
     VNextDatabaseAdminFacade,
 )
 
 from h2hdb_opds import OPDSConfig, create_app
 
+from .database_support import DatabaseCase
 from .http_client import app_client
 
 
-async def test_sqlite_epoch_three_is_opened_read_only_without_legacy_writer_api(
+async def test_epoch_three_is_opened_read_only_without_legacy_writer_api(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    database_case: DatabaseCase,
 ) -> None:
-    database_path = tmp_path / "catalog.sqlite3"
-    writable_config = CoreConfig(
-        database=DatabaseConfig(
-            sql_type="sqlite",
-            database=str(database_path),
-        )
-    )
+    writable_config = database_case.config
     with closing(VNextDatabaseAdminFacade(writable_config)) as admin:
         report = admin.initialize()
     assert report.epoch == 3
@@ -46,7 +38,7 @@ async def test_sqlite_epoch_three_is_opened_read_only_without_legacy_writer_api(
     coordination_root.mkdir()
     (coordination_root / "publication.lock").touch()
 
-    database_sha256 = sha256(database_path.read_bytes()).digest()
+    database_sha256 = database_case.snapshot()
     app = create_app(
         OPDSConfig(
             library_root=library_root,
@@ -66,36 +58,33 @@ async def test_sqlite_epoch_three_is_opened_read_only_without_legacy_writer_api(
     assert current_feed.json() == {"detail": "Catalog revision current not found"}
     assert atom_feed.status_code == 404
     assert atom_feed.json() == {"detail": "Catalog revision current not found"}
-    assert sha256(database_path.read_bytes()).digest() == database_sha256
+    assert database_case.snapshot() == database_sha256
 
 
 @pytest.mark.parametrize(("schema_version", "state"), ((8, "READY"), (9, "BUILDING")))
-async def test_sqlite_startup_rejects_previous_or_unfinished_schema_without_writes(
+async def test_startup_rejects_previous_or_unfinished_schema_without_writes(
     tmp_path: Path,
     schema_version: int,
     state: str,
+    database_case: DatabaseCase,
 ) -> None:
-    database = tmp_path / "catalog.sqlite3"
-    config = CoreConfig(
-        database=DatabaseConfig(sql_type="sqlite", database=str(database))
-    )
+    config = database_case.config
     with closing(VNextDatabaseAdminFacade(config)) as admin:
         admin.initialize()
     # A previous marker and an unfinished conversion are both rejected before
     # opening a catalog reader. This deliberately mutates only a local fixture.
-    with sqlite3.connect(database) as connection:
-        connection.execute(
-            "UPDATE h2hdb_schema_epoch SET schema_version = ?, state = ?, "
-            "ready_at = CASE WHEN ? = 'BUILDING' THEN NULL ELSE ready_at END "
-            "WHERE singleton_id = 1",
-            (schema_version, state, state),
-        )
+    database_case.execute(
+        "UPDATE h2hdb_schema_epoch SET schema_version = %s, state = %s, "
+        "ready_at = CASE WHEN %s = 'BUILDING' THEN NULL ELSE ready_at END "
+        "WHERE singleton_id = 1",
+        (schema_version, state, state),
+    )
     library = tmp_path / "current"
     library.mkdir()
     coordination = tmp_path / "coordination"
     coordination.mkdir()
     (coordination / "publication.lock").touch()
-    before = sha256(database.read_bytes()).digest()
+    before = database_case.snapshot()
     app = create_app(
         OPDSConfig(
             library_root=library,
@@ -107,4 +96,4 @@ async def test_sqlite_startup_rejects_previous_or_unfinished_schema_without_writ
     with pytest.raises(RuntimeError, match=r"(?i)(schema|building)"):
         async with app_client(app):
             pytest.fail("an unsupported marker must not start the reader")
-    assert sha256(database.read_bytes()).digest() == before
+    assert database_case.snapshot() == before

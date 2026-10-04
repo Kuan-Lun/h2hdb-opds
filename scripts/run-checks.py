@@ -197,7 +197,16 @@ def _command(profile: str) -> tuple[str, ...]:
     if profile == "full":
         return ("bash", str(REPOSITORY_ROOT / "scripts/check-full-steps.sh"))
     selection = "deep" if profile == "deep" else "not deep"
-    return (sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-m", selection)
+    return (
+        sys.executable,
+        "-m",
+        "pytest",
+        "-p",
+        "no:cacheprovider",
+        "--check-backend-pairs",
+        "-m",
+        selection,
+    )
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
