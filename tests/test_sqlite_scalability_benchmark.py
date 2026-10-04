@@ -25,7 +25,7 @@ from benchmarks.opds_sqlite_scalability import (
 from .catalog_fixture import _prepare_core_smoke_fixture
 from .catalog_http_oracle import EXPECTED_OPERATION_ORDER, SMOKE_EXPECTED_BODY_SHA256
 
-pytestmark = pytest.mark.backend_specific(
+_SQLITE_FILE_CONTRACT = pytest.mark.backend_specific(
     backend="sqlite",
     reason=(
         "SQLite benchmark receipts bind exact database-file bytes and physical "
@@ -45,6 +45,7 @@ def core_smoke_fixture(
     )
 
 
+@_SQLITE_FILE_CONTRACT
 def test_wheel_only_environment_cannot_silently_skip_required_sqlite_integration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -63,6 +64,7 @@ def test_wheel_only_environment_cannot_silently_skip_required_sqlite_integration
         _prepare_core_smoke_fixture(tmp_path)
 
 
+@_SQLITE_FILE_CONTRACT
 @pytest.mark.parametrize(
     ("provided", "missing"),
     (
@@ -80,6 +82,7 @@ def test_explicit_sqlite_fixture_requires_both_inputs(
         _prepare_core_smoke_fixture(tmp_path)
 
 
+@_SQLITE_FILE_CONTRACT
 def test_explicit_sqlite_fixture_is_validated_and_copied_before_use(
     core_smoke_fixture: tuple[Path, Path],
     tmp_path: Path,
@@ -98,6 +101,7 @@ def test_explicit_sqlite_fixture_is_validated_and_copied_before_use(
     assert load_core_fixture(database, receipt).profile == "smoke"
 
 
+@_SQLITE_FILE_CONTRACT
 def test_built_wheel_accepts_the_core_used_by_required_sqlite_integration(
     core_smoke_fixture: tuple[Path, Path],
     tmp_path: Path,
@@ -163,6 +167,7 @@ def test_built_wheel_accepts_the_core_used_by_required_sqlite_integration(
         )
 
 
+@_SQLITE_FILE_CONTRACT
 def test_core_fixture_receipt_is_exactly_bound_to_ready_database(
     core_smoke_fixture: tuple[Path, Path],
 ) -> None:
@@ -190,6 +195,7 @@ def test_core_fixture_receipt_is_exactly_bound_to_ready_database(
     )
 
 
+@_SQLITE_FILE_CONTRACT
 @pytest.mark.parametrize("schema_version", (1, 2, 3, 4, 5, 6, 7, 8, 10))
 def test_core_fixture_rejects_other_schema_versions(
     core_smoke_fixture: tuple[Path, Path],
@@ -209,6 +215,7 @@ def test_core_fixture_rejects_other_schema_versions(
         load_core_fixture(database, unsupported)
 
 
+@_SQLITE_FILE_CONTRACT
 def test_core_fixture_validation_supports_explicit_v1_and_fails_closed(
     core_smoke_fixture: tuple[Path, Path],
     tmp_path: Path,
@@ -280,6 +287,7 @@ def test_core_fixture_validation_supports_explicit_v1_and_fails_closed(
         load_core_fixture(changed_database, receipt)
 
 
+@_SQLITE_FILE_CONTRACT
 async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
     core_smoke_fixture: tuple[Path, Path],
     monkeypatch: pytest.MonkeyPatch,
@@ -417,6 +425,7 @@ async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
     )
 
 
+@_SQLITE_FILE_CONTRACT
 def test_portable_http_fixture_accepts_verified_inputs_without_core_source(
     core_smoke_fixture: tuple[Path, Path],
     tmp_path: Path,
