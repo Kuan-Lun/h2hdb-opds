@@ -324,6 +324,31 @@ volumes:
 若存在未完成的 `ACTIVATING` 狀態，應由 ingest 處理復原，
 不要自行刪除標記或鎖定檔案。
 
+## 本機資料庫整合測試
+
+一般 `pytest` 與自動 gate 不啟動服務。可攜的真實 SQL 測試使用同一個
+`database_case` 測試主體，分別收集 SQLite 與 MariaDB；完整 gate 以
+`--check-backend-pairs` 拒絕漏掉其中一個 backend 的案例。純 mock 測試不重複
+包裝成資料庫測試。真正只適用單一 engine 的測試須提供
+`backend_specific(backend=..., reason=...)`，而非略過配對要求。
+
+先安裝本 repository 的 `dev` dependencies，再使用本機 Docker 執行手動驗證：
+
+```sh
+.venv/bin/python -m pytest --collect-only -q -o addopts='' --check-backend-pairs
+H2HDB_TEST_MARIADB=1 .venv/bin/python -m pytest -q -o addopts='' -m mariadb --check-backend-pairs
+```
+
+MariaDB fixture 建立並移除一次性的 `mariadb:10.11.11` Testcontainer，每個案例
+使用獨立資料庫；只使用合成資料與容器專用帳密，不讀取生產環境設定。
+配對 collection 通過只證明案例齊全；必須另行回報上述 MariaDB 實際執行結果。
+
+165 筆出版物的 HTTP 測試共用固定回應雜湊，涵蓋 discovery、search、游標與
+三種 facets。它需要明確的 Core 開發 fixture（不包含在 Core wheel 內）：
+設定 `H2HDB_CORE_REPOSITORY=/path/to/h2hdb-checkout`，或使用可定位 fixture 的
+editable Core 安裝。fixture 原生建立所選 backend，並在 HTTP 驗證前完成
+完整 READY audit。既有 SQLite receipt／實體檔案測試仍保留其 engine 限定。
+
 ## 授權
 
 本專案採用 GNU General Public License v3.0，詳見 [LICENSE](LICENSE)。

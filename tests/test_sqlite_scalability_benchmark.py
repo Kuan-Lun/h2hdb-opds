@@ -23,39 +23,17 @@ from benchmarks.opds_sqlite_scalability import (
     run_sqlite_benchmark,
 )
 
-_SMOKE_PUBLICATION_COUNT = 165
-_EXPECTED_OPERATION_ORDER = (
-    "discovery_first_page",
-    "discovery_cursor_page",
-    "nonempty_search_first_page",
-    "nonempty_search_cursor_page",
-    "facet_language_first_page",
-    "facet_subject_first_page",
-    "facet_contributor_first_page",
+from .catalog_http_oracle import EXPECTED_OPERATION_ORDER, SMOKE_EXPECTED_BODY_SHA256
+
+pytestmark = pytest.mark.backend_specific(
+    backend="sqlite",
+    reason=(
+        "SQLite benchmark receipts bind exact database-file bytes and physical "
+        "page metrics; the portable HTTP oracle is separately paired on both engines"
+    ),
 )
-_SMOKE_EXPECTED_BODY_SHA256 = {
-    "discovery_first_page": (
-        "51bddb85a66a7d2bef63867a073873fa8190ba5d484f7715a9e4220c218bea4e"
-    ),
-    "discovery_cursor_page": (
-        "0bc3f6007a5c6c87c95d66eec1e264e09562d7c0e226f5159c55ab166777d608"
-    ),
-    "nonempty_search_first_page": (
-        "d117f03ac54cd357b35cc6aed5b425ce5a3541cdfe58ecd5f8acb9bdeaeadffd"
-    ),
-    "nonempty_search_cursor_page": (
-        "936581cd74839c5b274e757d27aaf61903c0b36bc101507fb668af2e17bbeba4"
-    ),
-    "facet_language_first_page": (
-        "2eaa4e17580c5de00a02a346d9456e654959b89ef5f51e89928aa7576590f4d9"
-    ),
-    "facet_subject_first_page": (
-        "75255856d4d1e5a4d418b4b2dfff0fcad31e34bc10ca47d0d2504645417601f1"
-    ),
-    "facet_contributor_first_page": (
-        "09ed8dc7e16b039b6166e187ca245923b3e037fcf0662d8688a7395526951181"
-    ),
-}
+
+_SMOKE_PUBLICATION_COUNT = 165
 
 
 @pytest.fixture(scope="module")
@@ -398,7 +376,7 @@ async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
     assert mode["core_internal_api_used"] is False
     assert mode["direct_sql_used"] is False
     assert mode["cbz_or_artwork_bytes_read"] is False
-    assert report["operation_order"] == list(_EXPECTED_OPERATION_ORDER)
+    assert report["operation_order"] == list(EXPECTED_OPERATION_ORDER)
 
     fixture = cast("dict[str, object]", report["fixture"])
     database_evidence = cast("dict[str, object]", fixture["database"])
@@ -423,10 +401,10 @@ async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
         assert value > 0
 
     operations = cast("dict[str, dict[str, object]]", report["operations"])
-    assert tuple(operations) == _EXPECTED_OPERATION_ORDER
+    assert tuple(operations) == EXPECTED_OPERATION_ORDER
     assert {
         name: operation["body_sha256"] for name, operation in operations.items()
-    } == _SMOKE_EXPECTED_BODY_SHA256
+    } == SMOKE_EXPECTED_BODY_SHA256
     for operation in operations.values():
         assert operation["status_code"] == 200
         assert isinstance(operation["first_sample_ns"], int)
@@ -496,7 +474,7 @@ async def test_sqlite_scalability_smoke_uses_public_app_and_exact_http_oracle(
     operation_memory = cast(
         "dict[str, dict[str, object]]", request_memory["operations"]
     )
-    assert tuple(operation_memory) == _EXPECTED_OPERATION_ORDER
+    assert tuple(operation_memory) == EXPECTED_OPERATION_ORDER
     assert all(
         isinstance(item["python_traced_peak_delta_bytes"], int)
         and item["python_traced_peak_delta_bytes"] > 0
