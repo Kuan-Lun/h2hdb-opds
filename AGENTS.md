@@ -39,9 +39,9 @@
 - 工作樹不乾淨時，從 committed primary 建立獨立 worktree。
 - task branch 可包含多個邏輯 Conventional Commits。避免巨大 commit；小而
   內聚的任務仍可只有一個 commit。
-- 任務完成後執行 `scripts/git-flow-merge.sh`。該腳本負責完整 gate、
-  `--no-ff` merge、安全移除 task worktree，以及以 `git branch -d`
-  刪除已合併的本機 branch。
+- 任務完成後執行 `scripts/git-flow-merge.sh`。該腳本負責依實際 staged
+  merge candidate 選擇文件或完整 gate、`--no-ff` merge、安全移除 task
+  worktree，以及以 `git branch -d` 刪除已合併的本機 branch。
 - primary 在任務期間可以推進；整合只要求 primary 與 task branch 有共同
   ancestor，不要求 task branch 仍直接基於目前 primary tip。
 - merge conflict 或 gate failure 時必須 abort merge 並保留 task branch。
@@ -120,15 +120,36 @@
 ## 檢查分層
 
 - `scripts/format.sh`：明確執行會修改檔案的 formatter 或 fixer。
+- `scripts/check_change_scope.py` 依 Git tree 與 index 的完整差異選擇
+  `documentation` 或 `full`，不得依 commit message、最後一個 commit
+  或 version impact 判定。Pre-commit 比較 `HEAD` 與 staged index；
+  pre-merge 比較 primary 的 `HEAD` 與真正的 staged merge candidate，涵蓋
+  task 的所有累積修改及正常 three-way merge 結果。
+- 純文件 allowlist 僅有 `README.md`、`docs/` 下的 `.md`、
+  `benchmarks/README.md` 與 `verification/README.md`，且新增、修改或刪除
+  的兩側只能是普通 `100644` 檔案。Rename 以刪除與新增分別檢查；
+  executable、symlink、submodule、type/mode change、未知路徑及空差異
+  一律使用 `full`。`AGENTS.md`、`CLAUDE.md` 及其大小寫變體、程式、
+  測試、工具、設定、dependency metadata、schema、CI 與 hooks 都不屬於純文件。
+  Git 或分類器錯誤必須停止，不能降級為文件檢查。
+- `scripts/check-docs.py --index --base HEAD` 從 Git 匯出 exact staged
+  candidate，在隔離暫存目錄只檢查 candidate 內的 Markdown 與 diff whitespace；
+  不得以未 stage 的工作樹內容取代 candidate。純文件 commit 與 merge
+  只執行此文件 gate，不啟動 Ruff、formatter、mypy、pytest、build、
+  runtime/schema checks 或 online code review；既有 branch、Conventional
+  Commit、merge 與 version checks 仍須執行。
 - `scripts/check-fast.sh`：離線、唯讀的 Ruff、format check、mypy 與
-  markdownlint；每次非 merge commit 執行。
+  markdownlint；非文件的每次非 merge commit 執行。明確手動執行
+  `check-fast.sh` 或 `check-full.sh` 時不做純文件短路。
 - `scripts/check-full.sh`：fast gate、bounded non-deep 測試、build、wheel smoke
-  及本 repository 的特殊檢查；整合候選只跑一次。所有階段共用 300 秒期限，
+  及本 repository 的特殊檢查；非文件整合候選只跑一次。
+  所有階段共用 300 秒期限，
   包括 collection、execution、teardown、階段切換與 owned process-group cleanup。
   `scripts/run-checks.py full` 是唯一 supervisor，`check-full-steps.sh` 只是內部
   sequential body，不得由 hooks 直接執行以繞過期限。
 - `.venv/bin/python scripts/run-checks.py pytest` 單獨執行同樣有 300 秒總期限的
-  non-deep pytest。每次非 merge commit 只執行 fast gate，不重跑完整測試。
+  non-deep pytest。非文件的每次非 merge commit 只執行 fast gate，
+  不重跑完整測試。
   plain pytest 預設排除 `deep`，但沒有 aggregate deadline。
 - `.venv/bin/python scripts/run-checks.py deep` 只執行明確標記的 deep cases，
   是必要時手動使用且不限執行時間的入口，不進入 hooks 或 merge gate。
