@@ -4,11 +4,12 @@
 支援 OPDS 1.2 與 OPDS 2.0，提供封面、縮圖、CBZ 下載，以及供 OPDS-PSE
 閱讀器使用的逐頁閱讀功能。
 
-已有書庫網址時，直接依下節加入閱讀器。要在自己的主機提供服務，
-請見[自行架設](#自行架設)。服務需要已由
-[H2HDB](https://github.com/Kuan-Lun/h2hdb) 與
-[ingest](https://github.com/Kuan-Lun/h2hdb-ingest) 準備好的書庫，
-不會直接掃描漫畫資料夾或匯入檔案。
+已有書庫網址：從[加入閱讀器](#加入閱讀器)開始，不需要安裝 Python。
+想提供自己的書庫：依[自行架設](#自行架設)完成安裝、設定與啟動。
+
+本服務讀取 [H2HDB](https://github.com/Kuan-Lun/h2hdb) 與
+[ingest](https://github.com/Kuan-Lun/h2hdb-ingest) 已發佈的書庫。
+要把漫畫資料夾匯入書庫，請先使用 ingest；這裡提供閱讀與下載入口。
 
 ## 加入閱讀器
 
@@ -22,7 +23,9 @@
 | OPDS 2.0 | `https://books.example.net/opds/v2` |
 
 兩個入口提供相同書庫與搜尋條件。逐頁閱讀需要閱讀器支援 OPDS-PSE；
-OPDS 2.0 提供封面、縮圖及 CBZ 下載。實際按鈕名稱與篩選介面依閱讀器而異。
+OPDS 2.0 提供封面、縮圖及 CBZ 下載。請依閱讀器支援的協定選擇入口，
+本專案沒有列出已逐一驗證的閱讀器相容清單。
+實際按鈕名稱、搜尋、篩選及導覽縮圖是否顯示，都取決於閱讀器。
 
 ## 瀏覽、閱讀與下載
 
@@ -138,49 +141,42 @@ ASCII 引號與彎引號不能混搭，`”...“` 反向配對無效，
 
 ### 準備環境與書庫
 
-需要 Python 3.14 以上版本，以及支援 POSIX 檔案鎖的環境，例如 Linux 或 macOS。
-此版本使用 `h2hdb>=0.43.0,<0.46.0`，對應 epoch 3／schema version 9，
-不再接納 schema 8。上傳時間取自目前已發佈的 observation，
-同一 GID 在後續 revision 可具有不同時間；OPDS 1.2 的 `dcterms:issued`
-與 OPDS 2 的 `metadata.published` 均使用 Core 公開的 `published_at`。
-HTTP 欄位與 CBZ 格式不變。
-Core 0.43、0.44 與 0.45 使用相同的 schema 9 與公開 catalog 介面；0.44 移除的是
-一次性離線升級工具，0.45 調整 ingest 決策查詢與效能紀錄，不改變 OPDS 使用的
-唯讀 catalog 契約。OPDS 可使用這三個 Core 版本系列。
-啟動前，請先由 H2HDB 與 ingest 完成初始化及書庫發佈，準備：
+架設服務需要：
 
-- 已完成初始化、狀態為 `READY` 的相容資料庫。
-- ingest 產生的完整 `current` 目錄，包含 `acquisitions` 與 `artwork`。
-- 同一書庫旁的 `.h2hdb-coordination` 目錄，內含既有的 `publication.lock`。
+- Python 3.14 以上，以及支援 POSIX 檔案鎖的環境，例如 Linux 或 macOS。
+- 已由 H2HDB 與 ingest 完成初始化及發佈的書庫。
+- 書庫使用的 SQLite 資料庫或 MariaDB 連線資訊。
+- ingest 的完整 `current` 目錄，其中包含 `acquisitions` 與 `artwork`。
+- 同一書庫旁的 `.h2hdb-coordination` 目錄，其中已有 `publication.lock`。
 
-服務以唯讀方式使用資料庫及書庫，不會補建缺少的檔案或自動升級資料庫。
-只有已發佈且有可下載檔案的內容會出現在閱讀器。
-目前需要 ingest 的 `managed-filesystem-v2` 書庫，不支援舊 `hash-v1` 格式。
+資料庫與檔案必須來自同一個書庫。服務以唯讀方式使用它們，
+只有已發佈且有可下載檔案的作品會出現在閱讀器。
+目前使用 ingest 的 `managed-filesystem-v2` 書庫格式。
 
-已完成 schema 9 轉換的資料庫不需再次轉換、清庫或重建 CBZ。
-尚未轉換的 exact schema 8 資料庫需先停止所有 consumers，由管理者使用
-Core 0.43.0 的獨立歷史 checkout（commit
-`70ca4a35d02a50e7d6f8fd294fccb0829321eaf4`）中的離線
-`scripts/upgrade-observation-upload-time-schema.py`，依該版本 README
-及對應環境轉至 schema 9；目前 Core checkout 已移除這些一次性升級工具。
-此轉換保留資料庫內容、CBZ 與 artwork，不需清空資料庫或重新封裝；
-OPDS 不會自行執行轉換，也不保留舊 schema 的 fallback。
-升級完成後，須確認每個應用映像中的 Core 與 consumer 版本都相容，再啟動服務；
-一次性升級容器不會更新應用映像。更舊或不相符資料庫應先依 Core 說明確認
-可用轉換途徑，不應直接刪除資料。
+本 checkout 的 Core 依賴範圍為 `h2hdb>=0.43.0,<0.46.0`，
+需要 epoch 3／schema version 9 且狀態為 `READY` 的資料庫。
+已有舊書庫時，先依 [H2HDB 的升級說明](https://github.com/Kuan-Lun/h2hdb#readme)
+確認適用的轉換方式；OPDS 不會自動升級資料庫，勿因啟動失敗直接刪除資料。
+已相容的書庫可沿用既有資料庫、CBZ 與 artwork。
 
-### 安裝
+### 從原始碼安裝
+
+以下命令在本專案 checkout 根目錄執行，安裝目前 checkout 的版本：
 
 ```bash
 python3.14 -m venv .venv
-.venv/bin/python -m pip install h2hdb-opds
+.venv/bin/python -m pip install .
+.venv/bin/h2hdb-opds --help
 ```
 
-如果是從本專案原始碼安裝，在專案目錄將最後一行改為：
+安裝時會一併解析所需依賴。若要搭配手上的 Core checkout，
+可明確指定其路徑，讓安裝程式同時檢查兩者的版本要求：
 
 ```bash
-.venv/bin/python -m pip install .
+.venv/bin/python -m pip install /path/to/h2hdb-checkout .
 ```
+
+把範例路徑替換成實際位置；不需要固定的相鄰目錄名稱。
 
 ### 先在本機啟動
 
@@ -222,6 +218,7 @@ python3.14 -m venv .venv
 
 MariaDB 範例需在啟動服務的環境中設定 `H2HDB_DATABASE_PASSWORD`。
 書庫及 coordination 路徑不能使用符號連結。
+設定檔只接受支援的欄位；請移除不屬於本服務的設定。
 
 啟動服務：
 
@@ -238,7 +235,7 @@ curl http://127.0.0.1:8000/version
 
 健康檢查成功會回傳 `{"status":"ok"}`；版本查詢會回傳服務名稱與已安裝套件版本。
 兩者不需要登入，也不代表書庫已完成完整資料稽核。
-完整稽核由 ingest 管理，或由管理者明確執行 H2HDB 的 `check`。
+需要完整資料檢查時，依 H2HDB 的管理說明執行資料庫稽核。
 
 同一台主機的閱讀器可加入 `http://127.0.0.1:8000/opds/v1.2/catalog`。
 這份設定只接受本機連線且未啟用登入；其他裝置請使用下一節的對外設定。
@@ -324,30 +321,14 @@ volumes:
 若存在未完成的 `ACTIVATING` 狀態，應由 ingest 處理復原，
 不要自行刪除標記或鎖定檔案。
 
-## 本機資料庫整合測試
+## 回報問題與參與開發
 
-一般 `pytest` 與自動 gate 不啟動服務。可攜的真實 SQL 測試使用同一個
-`database_case` 測試主體，分別收集 SQLite 與 MariaDB；完整 gate 以
-`--check-backend-pairs` 拒絕漏掉其中一個 backend 的案例。純 mock 測試不重複
-包裝成資料庫測試。真正只適用單一 engine 的測試須提供
-`backend_specific(backend=..., reason=...)`，而非略過配對要求。
+使用問題或錯誤可回報至 [Issues](https://github.com/Kuan-Lun/h2hdb-opds/issues)。
+請附上 `/version` 結果、閱讀器名稱與版本、出錯的操作及服務記錄；
+貼出設定或網址前，先移除密碼與不願公開的書庫資料。
 
-先安裝本 repository 的 `dev` dependencies，再使用本機 Docker 執行手動驗證：
-
-```sh
-.venv/bin/python -m pytest --collect-only -q -o addopts='' --check-backend-pairs
-H2HDB_TEST_MARIADB=1 .venv/bin/python -m pytest -q -o addopts='' -m mariadb --check-backend-pairs
-```
-
-MariaDB fixture 建立並移除一次性的 `mariadb:10.11.11` Testcontainer，每個案例
-使用獨立資料庫；只使用合成資料與容器專用帳密，不讀取生產環境設定。
-配對 collection 通過只證明案例齊全；必須另行回報上述 MariaDB 實際執行結果。
-
-165 筆出版物的 HTTP 測試共用固定回應雜湊，涵蓋 discovery、search、游標與
-三種 facets。它需要明確的 Core 開發 fixture（不包含在 Core wheel 內）：
-設定 `H2HDB_CORE_REPOSITORY=/path/to/h2hdb-checkout`，或使用可定位 fixture 的
-editable Core 安裝。fixture 原生建立所選 backend，並在 HTTP 驗證前完成
-完整 READY audit。既有 SQLite receipt／實體檔案測試仍保留其 engine 限定。
+要修改程式，請先閱讀 [AGENTS.md](AGENTS.md)；
+環境與檢查入口位於 [scripts](scripts)。一般使用不需要執行開發測試。
 
 ## 授權
 
