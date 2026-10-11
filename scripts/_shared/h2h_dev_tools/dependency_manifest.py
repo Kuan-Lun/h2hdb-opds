@@ -1,4 +1,4 @@
-"""Canonical dependency input shared by audit production and verification."""
+"""Canonical dependency bytes shared by audit creation and verification."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from typing import Any
 
 
 def dependency_manifest(document: dict[str, Any], package: dict[str, Any]) -> bytes:
-    """Return the canonical bytes bound by dependency-audit v1 receipts."""
     project = document.get("project", {})
     manifest = {
         "build": document.get("build-system", {}).get("requires", []),
