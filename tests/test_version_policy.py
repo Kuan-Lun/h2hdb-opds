@@ -3,9 +3,14 @@ from pathlib import Path
 from runpy import run_path
 from typing import cast
 
+import pytest
 
-def test_repository_benchmarks_are_classified_as_dev_only() -> None:
+
+def test_repository_benchmarks_are_classified_as_dev_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     repository_root = Path(__file__).resolve().parents[1]
+    monkeypatch.syspath_prepend(str(repository_root / "scripts"))
     namespace = run_path(
         str(repository_root / "scripts" / "check-version.py"),
         run_name="h2hdb_opds_check_version_test",
