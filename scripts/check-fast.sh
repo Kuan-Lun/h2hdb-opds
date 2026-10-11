@@ -5,6 +5,8 @@ set -euo pipefail
 repository_root="$(git rev-parse --show-toplevel)"
 cd "$repository_root"
 
+.venv/bin/python scripts/_shared/h2h_dev_tools/bundle_verify.py --repository .
+
 for executable in .venv/bin/ruff .venv/bin/mypy node_modules/.bin/markdownlint-cli2; do
     [[ -x "$executable" ]] || {
         printf 'Missing repository-local tool: %s; run scripts/rebuild-env.sh\n' \

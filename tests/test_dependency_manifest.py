@@ -4,12 +4,16 @@ import copy
 import hashlib
 import importlib.util
 import json
+import runpy
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from scripts.dependency_manifest import dependency_manifest
+_ROOT = Path(__file__).resolve().parents[1]
+dependency_manifest = runpy.run_path(
+    str(_ROOT / "scripts/_shared/h2h_dev_tools/dependency_manifest.py")
+)["dependency_manifest"]
 
 _DOCUMENT: dict[str, Any] = {
     "project": {

@@ -73,7 +73,7 @@ ignore = ["E501"]
 [tool.mypy]
 python_version = "3.14"
 mypy_path = "src"
-files = ["src", "tests", "benchmarks", "scripts/run-checks.py"]
+files = ["src", "tests", "benchmarks", "scripts/run-checks.py", "scripts/_shared"]
 strict = true
 warn_unused_configs = true
 warn_unreachable = true
